@@ -76,6 +76,9 @@ def apply_letter_flags(text: str):
 
 
 def normalize_punct(text: str):
+    # Em dash spacing: unify and ensure spaces on both sides
+    text = text.replace("–", "—")
+    text = re.sub(r"\s*—\s*", " — ", text)
     # Replace ... with …, normalize dashes and spacing
     text = re.sub(r"(?<!\.)\.\.\.(?!\.)", "…", text)
     text = re.sub(r"(?<=\S)\s-\s(?=\S)", " — ", text)
