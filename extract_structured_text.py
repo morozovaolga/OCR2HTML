@@ -26,7 +26,7 @@ def collect_block_text(block) -> str:
     return text.strip()
 
 
-def page_blocks_with_roles(page):
+def page_blocks_with_roles(page, two_columns=False):
     d = page.get_text("dict")
     blocks = []
     sizes = []
@@ -82,8 +82,27 @@ def page_blocks_with_roles(page):
         elif centered and short and not wide:
             is_heading = True
         b["role"] = "heading" if is_heading else "paragraph"
-    # Sort by reading order (top, then left)
-    blocks.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
+    
+    # Sort by reading order
+    if two_columns:
+        # For two-column layout: first all left column blocks (sorted by Y), then all right column blocks (sorted by Y)
+        page_center_x = pw / 2
+        left_blocks = []
+        right_blocks = []
+        for b in blocks:
+            x0, y0, x1, y1 = b["bbox"]
+            block_center_x = (x0 + x1) / 2
+            if block_center_x < page_center_x:
+                left_blocks.append(b)
+            else:
+                right_blocks.append(b)
+        # Sort each column by Y coordinate (top to bottom)
+        left_blocks.sort(key=lambda x: x["bbox"][1])
+        right_blocks.sort(key=lambda x: x["bbox"][1])
+        blocks = left_blocks + right_blocks
+    else:
+        # Default: sort by reading order (top, then left)
+        blocks.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
     return blocks
 
 
@@ -112,6 +131,7 @@ def main():
     ap = argparse.ArgumentParser(description="Extract structured text (paragraphs/headings) from PDF with embedded text.")
     ap.add_argument("--pdf", required=True, help="Input PDF path")
     ap.add_argument("--outdir", default="output_vol2", help="Output directory")
+    ap.add_argument("--two-columns", action="store_true", help="Process pages with two columns: left column first, then right column")
     args = ap.parse_args()
 
     pdf_path = Path(args.pdf)
@@ -122,7 +142,7 @@ def main():
     all_blocks = []
     for i in range(len(doc)):
         page = doc.load_page(i)
-        p_blocks = page_blocks_with_roles(page)
+        p_blocks = page_blocks_with_roles(page, two_columns=args.two_columns)
         for b in p_blocks:
             all_blocks.append({
                 "page": i + 1,

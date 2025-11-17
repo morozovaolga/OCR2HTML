@@ -16,3 +16,6 @@ out/
 output/
 output_vol2/
 
+# PDF files
+*.pdf
+

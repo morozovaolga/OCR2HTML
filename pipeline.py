@@ -19,6 +19,7 @@ def main():
     ap.add_argument("--no-oldspelling", action="store_true", help="Skip applying rules from oldspelling.py")
     ap.add_argument("--lt-cloud", action="store_true", help="Run LanguageTool (cloud) safe fixes after modernization")
     ap.add_argument("--post-clean", action="store_true", help="Run post-cleanup: join spaced letters, fix intraword gaps, Latin→Cyrillic")
+    ap.add_argument("--two-columns", action="store_true", help="Process pages with two columns: left column first, then right column")
     args = ap.parse_args()
 
     here = Path(__file__).parent
@@ -26,7 +27,10 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     # 1) Extract structure from PDF
-    run([sys.executable, str(here / "extract_structured_text.py"), "--pdf", args.pdf, "--outdir", str(outdir)])
+    extract_cmd = [sys.executable, str(here / "extract_structured_text.py"), "--pdf", args.pdf, "--outdir", str(outdir)]
+    if args.two_columns:
+        extract_cmd.append("--two-columns")
+    run(extract_cmd)
 
     # 2) (optional) Apply oldspelling rules to blocks
     structured_in = outdir / "structured.json"
