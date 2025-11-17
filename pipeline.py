@@ -19,6 +19,9 @@ def main():
     ap.add_argument("--no-oldspelling", action="store_true", help="Skip applying rules from oldspelling.py")
     ap.add_argument("--lt-cloud", action="store_true", help="Run LanguageTool (cloud) safe fixes after modernization")
     ap.add_argument("--post-clean", action="store_true", help="Run post-cleanup: join spaced letters, fix intraword gaps, Latin→Cyrillic")
+    ap.add_argument("--gigachat", action="store_true", help="Run GigaChat API grammar and OCR error correction (requires GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET env vars)")
+    ap.add_argument("--ollama", action="store_true", help="Run Ollama (local) grammar and OCR error correction (requires Ollama to be running)")
+    ap.add_argument("--ollama-model", default="mistral:latest", help="Ollama model to use (default: mistral:latest)")
     ap.add_argument("--two-columns", action="store_true", help="Process pages with two columns: left column first, then right column")
     args = ap.parse_args()
 
@@ -50,11 +53,28 @@ def main():
         source_txt = outdir / ("final_clean.txt" if (outdir / "final_clean.txt").exists() else "final.txt")
         run([sys.executable, str(here / "post_cleanup.py"), "--in", str(source_txt), "--out", str(outdir / "final_better.txt"), "--html", str(outdir / "final_better.html"), "--title", args.title + " (post-clean)"])
 
+    # 6) (optional) GigaChat API: write final_gigachat.* from best available source
+    if args.gigachat:
+        source_txt = outdir / ("final_better.txt" if (outdir / "final_better.txt").exists() else 
+                              "final_clean.txt" if (outdir / "final_clean.txt").exists() else 
+                              "final.txt")
+        run([sys.executable, str(here / "gigachat_check.py"), "--in", str(source_txt), "--outdir", str(outdir), "--title", args.title + " (GigaChat)"])
+
+    # 7) (optional) Ollama (local): write final_ollama.* from best available source
+    if args.ollama:
+        source_txt = outdir / ("final_better.txt" if (outdir / "final_better.txt").exists() else 
+                              "final_clean.txt" if (outdir / "final_clean.txt").exists() else 
+                              "final.txt")
+        ollama_cmd = [sys.executable, str(here / "ollama_check.py"), "--in", str(source_txt), "--outdir", str(outdir), "--title", args.title + " (Ollama)", "--model", args.ollama_model]
+        run(ollama_cmd)
+
     print("\nDone.")
     print("Open:")
     print(" -", outdir / "final.html")
     print(" -", outdir / ("final_clean.html" if (outdir / "final_clean.html").exists() else "final.html"))
     print(" -", outdir / ("final_better.html" if (outdir / "final_better.html").exists() else "final.html"))
+    print(" -", outdir / ("final_gigachat.html" if (outdir / "final_gigachat.html").exists() else "final.html"))
+    print(" -", outdir / ("final_ollama.html" if (outdir / "final_ollama.html").exists() else "final.html"))
 
 
 if __name__ == "__main__":

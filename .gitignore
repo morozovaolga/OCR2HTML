@@ -19,3 +19,6 @@ output_vol2/
 # PDF files
 *.pdf
 
+# Environment variables
+.env
+

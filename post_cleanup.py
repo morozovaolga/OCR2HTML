@@ -61,6 +61,25 @@ def fix_intraword_small_gaps(text: str) -> str:
     return re.sub(r"(?<![\w-])(?:[А-ЯЁа-яё]+(?:\s+[А-ЯЁа-яё]+)+)(?![\w-])", _sub, text)
 
 
+
+
+def fix_common_ocr_errors(text: str) -> str:
+    # Fix common OCR errors: "па" -> "на", "то" -> "по" (in context), etc.
+    # Be careful: only fix in specific contexts to avoid false positives
+    fixes = [
+        # "па" -> "на" (before any word starting with lowercase cyrillic)
+        # This covers cases like "па дитя", "па столе", "па земле"
+        (r"\bпа\s+([а-яё])", r"на \1"),
+        # "то" -> "по" (in some contexts like "то дороге", "то стене")
+        (r"\bто\s+(дороге|стене|полу|небу|земле|воде|берегу|берегам)\b", r"по \1"),
+        # "то" -> "по" in "то мере", "то степени"
+        (r"\bто\s+(мере|степени|крайней|меньшей|большей)\b", r"по \1"),
+    ]
+    for pattern, replacement in fixes:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+
 def cleanup_text(text: str) -> str:
     t = text.replace("\r\n", "\n").replace("\r", "\n")
     t = re.sub(r"[\u200B\u200C\u200D\u00AD]", "", t)
@@ -76,6 +95,7 @@ def cleanup_text(text: str) -> str:
     t = re.sub(r"[ \t]{2,}", " ", t)
     t = join_spaced_letters(t)
     t = fix_intraword_small_gaps(t)
+    t = fix_common_ocr_errors(t)
     t = convert_mixed_latin_to_cyr(t)
     return t.strip()
 
