@@ -37,6 +37,8 @@ macOS/Linux:
   - С исправлением через Ollama (рекомендуется, локально, требует установленную Ollama):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "Мой документ" --ollama
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "Мой документ" --ollama --ollama-model llama3.1:8b
+  - С генерацией EPUB (требует шаблон EPUB и Pillow):
+    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "Мой документ" --epub-template sample.epub --epub-author "Имя Автора"
 
 Что получится в папке out/
 - structured.json — извлечённые блоки текста по страницам (с ролями heading/paragraph)
@@ -50,9 +52,10 @@ macOS/Linux:
 - final_better.txt / final_better.html — после пост‑очистки (склейка букв через пробел, латиница→кириллица)
 - final_gigachat.txt / final_gigachat.html — после исправления через GigaChat API (грамматика и ошибки OCR с учетом контекста)
 - final_ollama.txt / final_ollama.html — после исправления через Ollama (локально, грамматика и ошибки OCR)
+- Название_книги.epub — EPUB файл с автоматически сгенерированной обложкой (если указан --epub-template)
 
 Команда и параметры
-- python pipeline.py --pdf t1.pdf --outdir output_vol2 --title "t1.pdf (современная, структурированная)" [--no-oldspelling] [--lt-cloud] [--post-clean] [--gigachat] [--ollama] [--ollama-model MODEL] [--two-columns]
+- python pipeline.py --pdf t1.pdf --outdir output_vol2 --title "t1.pdf (современная, структурированная)" [--no-oldspelling] [--lt-cloud] [--post-clean] [--gigachat] [--ollama] [--ollama-model MODEL] [--two-columns] [--epub-template PATH] [--epub-author AUTHOR]
   - --pdf — путь к PDF
   - --outdir — папка вывода (будет создана)
   - --title — заголовок HTML
@@ -63,6 +66,8 @@ macOS/Linux:
   - --ollama — исправление грамматики и ошибок OCR через Ollama (локально, требует установленную Ollama)
   - --ollama-model MODEL — модель Ollama для использования (по умолчанию: mistral:latest)
   - --two-columns — обработка страниц с двумя колонками: сначала все блоки левой колонки (сверху вниз), затем все блоки правой колонки (сверху вниз)
+  - --epub-template PATH — путь к шаблону EPUB (например, sample.epub). Если указан, генерирует EPUB из лучшего доступного HTML/JSON. По умолчанию ищет sample.epub в корне проекта
+  - --epub-author AUTHOR — имя автора для генерации обложки EPUB
 
 Как работает LanguageTool (--lt-cloud):
 LanguageTool — это облачный сервис проверки грамматики и орфографии. В этом проекте используется только для безопасных автоматических исправлений.
@@ -158,6 +163,36 @@ powercfg /change standby-timeout-dc 15
      export GIGACHAT_CLIENT_ID="ваш_client_id"
      export GIGACHAT_CLIENT_SECRET="ваш_client_secret"
 
+Генерация EPUB (--epub-template):
+Программа может автоматически создавать EPUB файлы на основе шаблона EPUB и обработанного текста.
+
+Что нужно:
+1. Шаблон EPUB файл (например, sample.epub) в корне проекта или указать путь к нему
+2. Установленный Pillow: pip install Pillow
+
+Что делает:
+1. Использует лучший доступный источник текста (приоритет: final_ollama.html > final_gigachat.html > final_better.html > final_clean.html > final.html)
+2. Разбивает текст на разделы (по заголовкам или размеру, до 50 KB на раздел)
+3. Автоматически генерирует обложку с названием и автором (случайный градиент из 3 гармоничных цветов)
+4. Обновляет титульную страницу и оглавление
+5. Создает EPUB файл в папке out/
+
+Пример использования:
+```bash
+# Полная обработка с генерацией EPUB
+python pipeline.py --pdf book.pdf --outdir out --title "Название книги" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Имя Автора"
+
+# Или отдельно (если уже есть обработанный HTML)
+python generate_epub.py --template sample.epub --in out/final_ollama.html --out out/book.epub --title "Название книги" --author "Имя Автора"
+```
+
+Особенности:
+- Автоматическая генерация обложки с градиентом из 3 гармоничных цветов
+- Разделы нумеруются начиная с 1 (Section0001.xhtml, Section0002.xhtml и т.д.)
+- Обновляется титульная страница (Titul.xhtml) с новым заголовком и автором
+- Обновляется оглавление (toc.ncx) с новыми разделами
+- Поддерживает как HTML (final_*.html), так и JSON (structured*.json) в качестве источника
+
 Структура папки
 - pipeline.py — единая точка входа (оркестратор)
 - extract_structured_text.py — извлечение блоков/ролей
@@ -166,7 +201,9 @@ powercfg /change standby-timeout-dc 15
 - lt_cloud.py — безопасные исправления LanguageTool (облако)
 - post_cleanup.py — пост‑очистка «буквы через пробел», «обни мают», латиница→кириллица
 - gigachat_check.py — исправление грамматики и ошибок OCR через GigaChat API
+- ollama_check.py — исправление грамматики и ошибок OCR через Ollama
+- generate_epub.py — генерация EPUB из HTML/JSON с автоматической обложкой
 - oldspelling.py — правила дореформенной орфографии (regex‑замены)
-- requirements.txt — зависимости (PyMuPDF)
+- requirements.txt — зависимости (PyMuPDF, python-dotenv, Pillow)
 - .gitignore — исключения
 

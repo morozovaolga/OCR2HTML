@@ -27,6 +27,8 @@ Quick Start
   - With Ollama grammar correction (recommended, local):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama --ollama-model llama3.1:8b
+  - With EPUB generation (requires EPUB template and Pillow):
+    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --epub-template sample.epub --epub-author "Author Name"
 
 Outputs (in out/)
 - structured.json — block structure per page (roles: heading/paragraph)
@@ -40,6 +42,7 @@ Optional (if enabled):
 - final_better.txt / final_better.html — after post-cleanup (join spaced letters, Latin→Cyrillic)
 - final_gigachat.txt / final_gigachat.html — after GigaChat API correction (grammar and OCR errors)
 - final_ollama.txt / final_ollama.html — after Ollama correction (local, grammar and OCR errors)
+- Book_Title.epub — EPUB file with automatically generated cover (if --epub-template is specified)
 
 How it works
 1) extract_structured_text.py — collects text blocks via PyMuPDF and assigns roles.
@@ -143,19 +146,50 @@ If you still want to try:
      export GIGACHAT_CLIENT_ID="your_client_id"
      export GIGACHAT_CLIENT_SECRET="your_client_secret"
 
+EPUB Generation (--epub-template):
+The program can automatically create EPUB files based on an EPUB template and processed text.
+
+Requirements:
+1. EPUB template file (e.g., sample.epub) in project root or specify path
+2. Pillow installed: pip install Pillow
+
+What it does:
+1. Uses the best available text source (priority: final_ollama.html > final_gigachat.html > final_better.html > final_clean.html > final.html)
+2. Splits text into sections (by headings or size, up to 50 KB per section)
+3. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
+4. Updates title page and table of contents
+5. Creates EPUB file in out/ folder
+
+Example usage:
+```bash
+# Full processing with EPUB generation
+python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Author Name"
+
+# Or separately (if you already have processed HTML)
+python generate_epub.py --template sample.epub --in out/final_ollama.html --out out/book.epub --title "Book Title" --author "Author Name"
+```
+
+Features:
+- Automatic cover generation with gradient from 3 harmonious colors
+- Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
+- Updated title page (Titul.xhtml) with new title and author
+- Updated table of contents (toc.ncx) with new sections
+- Supports both HTML (final_*.html) and JSON (structured*.json) as source
+
 Repository layout
 - pipeline.py                 — orchestrator
 - extract_structured_text.py  — structure extraction
 - apply_rules_structured.py   — oldspelling rules application
 - modernize_structured.py     — modernization and final rendering
-- oldspelling.py              — pre‑reform spelling rules (regex map)
 - lt_cloud.py                  — LanguageTool (cloud) safe fixes
 - post_cleanup.py             — post-cleanup: join spaced letters, fix gaps, Latin→Cyrillic
 - gigachat_check.py           — GigaChat API integration (experimental)
 - ollama_check.py             — Ollama integration (local AI)
+- generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
 - run_ollama_background.ps1    — PowerShell script for background Ollama processing
 - run_ollama_background.bat    — BAT script for background Ollama processing
-- requirements.txt            — dependencies (PyMuPDF, python-dotenv)
+- oldspelling.py              — pre‑reform spelling rules (regex map)
+- requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
 
 Publish to GitHub (example)
 - cd ocr2html
