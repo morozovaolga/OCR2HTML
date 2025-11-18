@@ -1,6 +1,6 @@
 OCR → HTML (paragraph-preserving, with spelling modernization)
 
-This minimal toolchain takes a PDF that already contains an OCR text layer, reconstructs paragraphs/headings based on page layout, applies historical (pre‑reform) Russian spelling rules (oldspelling), then modern Russian spelling/typographic normalization, and exports clean HTML/TXT.
+This minimal toolchain takes a PDF that already contains an OCR text layer, reconstructs paragraphs/headings based on page layout, applies historical (pre‑reform) Russian spelling rules (oldspelling), then modern Russian spelling/typographic normalization, and exports clean HTML/TXT. Also supports EPUB file generation with automatically created cover based on a template.
 
 No frontend or extra files — just the scripts you need.
 
