@@ -1,0 +1,683 @@
+import argparse
+import json
+import re
+import shutil
+import tempfile
+import uuid
+from datetime import datetime
+from html import escape as hesc
+from pathlib import Path
+from xml.etree import ElementTree as ET
+import zipfile
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+
+def load_blocks_from_json(json_path: Path):
+    """Загрузить блоки из JSON файла (structured.json или structured_rules.json)"""
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    return data.get("blocks", [])
+
+
+def load_blocks_from_html(html_path: Path):
+    """Загрузить блоки из HTML файла (парсит h2, p и pre теги)"""
+    html = html_path.read_text(encoding="utf-8")
+    blocks = []
+    
+    # Сначала пробуем найти h2 и p теги (формат modernize_structured.py)
+    h2_pattern = r'<h2[^>]*>(.*?)</h2>'
+    p_pattern = r'<p[^>]*>(.*?)</p>'
+    pre_pattern = r'<pre[^>]*>(.*?)</pre>'
+    
+    # Проверяем, есть ли pre тег (формат lt_cloud.py)
+    pre_match = re.search(pre_pattern, html, re.DOTALL | re.IGNORECASE)
+    
+    if pre_match:
+        # Обрабатываем pre тег - разбиваем на абзацы по пустым строкам
+        pre_content = pre_match.group(1)
+        # Декодируем HTML entities
+        pre_content = pre_content.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+        # Убираем HTML теги, если есть
+        pre_content = re.sub(r'<[^>]+>', '', pre_content)
+        
+        # Разбиваем на абзацы по двойным переносам строк или одиночным переносам с пустой строкой
+        paragraphs = re.split(r'\n\s*\n', pre_content)
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            # Определяем, является ли абзац заголовком (короткий, все заглавные, или в верхнем регистре)
+            lines = para.split('\n')
+            first_line = lines[0].strip()
+            
+            # Если первая строка короткая и в верхнем регистре - считаем заголовком
+            is_heading = (
+                len(first_line) < 100 and 
+                (first_line.isupper() or 
+                 len(lines) == 1 and len(first_line) < 50) and
+                not first_line.endswith(('.', ',', ';', ':', '!', '?'))
+            )
+            
+            # Объединяем строки абзаца
+            para_text = ' '.join(line.strip() for line in lines if line.strip())
+            para_text = re.sub(r'\s+', ' ', para_text).strip()
+            
+            if para_text:
+                blocks.append({
+                    "role": "heading" if is_heading else "paragraph",
+                    "text": para_text
+                })
+    else:
+        # Обрабатываем h2 и p теги (формат modernize_structured.py)
+        pos = 0
+        while pos < len(html):
+            # Ищем следующий h2 или p
+            h2_match = re.search(h2_pattern, html[pos:], re.DOTALL | re.IGNORECASE)
+            p_match = re.search(p_pattern, html[pos:], re.DOTALL | re.IGNORECASE)
+            
+            if h2_match and (not p_match or h2_match.start() < p_match.start()):
+                # Найден h2
+                text = h2_match.group(1)
+                # Убираем HTML теги, но сохраняем текст из mark тегов (для флагов)
+                text = re.sub(r'<mark[^>]*>(.*?)</mark>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<[^>]+>', '', text)
+                # Декодируем HTML entities
+                text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+                text = re.sub(r'\s+', ' ', text).strip()
+                if text:
+                    blocks.append({"role": "heading", "text": text})
+                pos += h2_match.end()
+            elif p_match:
+                # Найден p
+                text = p_match.group(1)
+                text = re.sub(r'<mark[^>]*>(.*?)</mark>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<[^>]+>', '', text)
+                # Декодируем HTML entities
+                text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+                text = re.sub(r'\s+', ' ', text).strip()
+                if text:
+                    blocks.append({"role": "paragraph", "text": text})
+                pos += p_match.end()
+            else:
+                break
+    
+    return blocks
+
+
+def split_into_sections(blocks, max_size_kb=50):
+    """Разбить блоки на разделы по заголовкам или размеру"""
+    sections = []
+    current_section = []
+    current_size = 0
+    max_size = max_size_kb * 1024  # в байтах
+    
+    for block in blocks:
+        block_text = block.get("text", "")
+        block_size = len(block_text.encode("utf-8"))
+        
+        # Если это заголовок и текущий раздел не пуст, начинаем новый раздел
+        if block.get("role") == "heading" and current_section:
+            sections.append(current_section)
+            current_section = [block]
+            current_size = block_size
+        else:
+            # Если добавление блока превысит лимит и раздел не пуст, начинаем новый
+            if current_section and (current_size + block_size) > max_size:
+                sections.append(current_section)
+                current_section = [block]
+                current_size = block_size
+            else:
+                current_section.append(block)
+                current_size += block_size
+    
+    if current_section:
+        sections.append(current_section)
+    
+    return sections
+
+
+def generate_cover_image(title: str, author: str = "", width: int = 1200, height: int = 1600) -> bytes:
+    """Генерировать изображение обложки с названием и автором"""
+    if not HAS_PIL:
+        raise ImportError("Pillow (PIL) не установлен. Установите: pip install Pillow")
+    
+    import random
+    import colorsys
+    
+    # Генерируем случайную цветовую схему из 3 гармоничных цветов
+    # Используем цветовой круг: выбираем базовый оттенок, затем берем соседние гармоничные цвета
+    
+    # Выбираем случайный базовый оттенок (0-360 градусов в HSV)
+    base_hue = random.uniform(0, 1)  # 0-1 в colorsys (это 0-360°)
+    
+    # Генерируем 3 гармоничных цвета:
+    # 1. Базовый цвет (верх)
+    # 2. Цвет со сдвигом на 30-60° (середина) 
+    # 3. Цвет со сдвигом на 60-120° (низ)
+    
+    # Настройки для гармоничных цветов
+    saturation = random.uniform(0.4, 0.7)  # Насыщенность
+    value_top = random.uniform(0.15, 0.25)  # Яркость для верха (темнее)
+    value_mid = random.uniform(0.3, 0.5)   # Яркость для середины
+    value_bottom = random.uniform(0.4, 0.6) # Яркость для низа (светлее)
+    
+    # Генерируем 3 цвета в HSV, затем конвертируем в RGB
+    hue_shift1 = random.uniform(0.08, 0.15)  # Сдвиг для второго цвета (30-54°)
+    hue_shift2 = random.uniform(0.15, 0.25)  # Сдвиг для третьего цвета (54-90°)
+    
+    # Цвет 1 (верх) - базовый, темнее
+    color1_hsv = (base_hue, saturation, value_top)
+    color1_rgb = colorsys.hsv_to_rgb(*color1_hsv)
+    top_color = tuple(int(c * 255) for c in color1_rgb)
+    
+    # Цвет 2 (середина) - с небольшим сдвигом оттенка
+    color2_hsv = ((base_hue + hue_shift1) % 1.0, saturation, value_mid)
+    color2_rgb = colorsys.hsv_to_rgb(*color2_hsv)
+    mid_color = tuple(int(c * 255) for c in color2_rgb)
+    
+    # Цвет 3 (низ) - с большим сдвигом оттенка
+    color3_hsv = ((base_hue + hue_shift2) % 1.0, saturation, value_bottom)
+    color3_rgb = colorsys.hsv_to_rgb(*color3_hsv)
+    bottom_color = tuple(int(c * 255) for c in color3_rgb)
+    
+    # Создаем изображение с градиентом
+    img = Image.new('RGB', (width, height), color=top_color)
+    draw = ImageDraw.Draw(img)
+    
+    # Рисуем градиентный фон через 3 цвета
+    mid_point = height // 2  # Середина изображения
+    
+    for y in range(height):
+        if y < mid_point:
+            # Градиент от верхнего цвета к среднему
+            ratio = y / mid_point
+            r = int(top_color[0] + (mid_color[0] - top_color[0]) * ratio)
+            g = int(top_color[1] + (mid_color[1] - top_color[1]) * ratio)
+            b = int(top_color[2] + (mid_color[2] - top_color[2]) * ratio)
+        else:
+            # Градиент от среднего цвета к нижнему
+            ratio = (y - mid_point) / (height - mid_point)
+            r = int(mid_color[0] + (bottom_color[0] - mid_color[0]) * ratio)
+            g = int(mid_color[1] + (bottom_color[1] - mid_color[1]) * ratio)
+            b = int(mid_color[2] + (bottom_color[2] - mid_color[2]) * ratio)
+        
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
+    
+    # Пробуем загрузить шрифт, если не получается - используем стандартный
+    try:
+        # Пробуем найти системный шрифт
+        title_font = ImageFont.truetype("arial.ttf", 72)
+        author_font = ImageFont.truetype("arial.ttf", 48)
+    except:
+        try:
+            # Альтернативные пути для Windows
+            title_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 72)
+            author_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 48)
+        except:
+            # Используем стандартный шрифт
+            title_font = ImageFont.load_default()
+            author_font = ImageFont.load_default()
+    
+    # Разбиваем заголовок на строки, если он слишком длинный
+    title_lines = []
+    words = title.split()
+    current_line = ""
+    max_width = width - 200  # Отступы по 100px с каждой стороны
+    
+    for word in words:
+        test_line = current_line + (" " if current_line else "") + word
+        bbox = draw.textbbox((0, 0), test_line, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        
+        if text_width <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                title_lines.append(current_line)
+            current_line = word
+    
+    if current_line:
+        title_lines.append(current_line)
+    
+    # Рисуем заголовок
+    title_y = height // 3
+    line_height = 90
+    for i, line in enumerate(title_lines):
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        x = (width - text_width) // 2
+        y = title_y + i * line_height
+        
+        # Тень для текста (темно-серый)
+        draw.text((x + 3, y + 3), line, font=title_font, fill=(50, 50, 50))
+        # Основной текст
+        draw.text((x, y), line, font=title_font, fill=(255, 255, 255))
+    
+    # Рисуем автора, если указан
+    if author:
+        bbox = draw.textbbox((0, 0), author, font=author_font)
+        text_width = bbox[2] - bbox[0]
+        author_x = (width - text_width) // 2
+        author_y = height - 300
+        
+        # Тень для текста (темно-серый)
+        draw.text((author_x + 2, author_y + 2), author, font=author_font, fill=(50, 50, 50))
+        # Основной текст
+        draw.text((author_x, author_y), author, font=author_font, fill=(200, 200, 200))
+    
+    # Сохраняем в байты (JPEG)
+    from io import BytesIO
+    img_bytes = BytesIO()
+    img.save(img_bytes, format='JPEG', quality=90)
+    return img_bytes.getvalue()
+
+
+def create_xhtml_section(blocks, title, css_href="../Styles/Style0001.css"):
+    """Создать XHTML файл для раздела"""
+    body_parts = []
+    for block in blocks:
+        text = hesc(block.get("text", ""))
+        if block.get("role") == "heading":
+            body_parts.append(f"<h2>{text}</h2>")
+        else:
+            body_parts.append(f"<p>{text}</p>")
+    
+    xhtml = f'''<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head>
+ <title>{hesc(title)}</title>
+ <link href="{css_href}" rel="stylesheet" type="text/css"/>
+</head>
+
+<body>
+{chr(10).join(body_parts)}
+</body>
+</html>'''
+    
+    return xhtml
+
+
+def update_content_opf(opf_content: str, section_files: list, title: str, author: str = "", has_cover: bool = False, sections: list = None):
+    """Обновить content.opf с новыми разделами"""
+    # Парсим XML
+    root = ET.fromstring(opf_content)
+    
+    # Определяем namespace из корневого элемента
+    opf_ns = 'http://www.idpf.org/2007/opf'
+    dc_ns = 'http://purl.org/dc/elements/1.1/'
+    dcterms_ns = 'http://purl.org/dc/terms/'
+    
+    # Находим namespace префиксы из корневого элемента
+    ns_map = {}
+    if root.tag.startswith('{'):
+        # Извлекаем namespace из тега
+        ns_uri = root.tag[1:].split('}')[0]
+        ns_map[''] = ns_uri
+    
+    # Используем полные namespace URI для поиска
+    ns = {'opf': opf_ns, 'dc': dc_ns}
+    
+    # Обновляем заголовок
+    title_elem = root.find(f'.//{{{dc_ns}}}title')
+    if title_elem is not None:
+        title_elem.text = title
+    
+    # Обновляем или добавляем автора
+    if author:
+        metadata = root.find(f'.//{{{opf_ns}}}metadata')
+        if metadata is not None:
+            # Ищем существующего автора
+            creator_elem = metadata.find(f'.//{{{dc_ns}}}creator')
+            if creator_elem is not None:
+                creator_elem.text = author
+            else:
+                # Создаем нового автора
+                creator = ET.SubElement(metadata, f'{{{dc_ns}}}creator')
+                creator.set('id', 'cre')
+                creator.text = author
+                # Добавляем meta для роли
+                meta_role = ET.SubElement(metadata, f'{{{opf_ns}}}meta')
+                meta_role.set('refines', '#cre')
+                meta_role.set('property', 'role')
+                meta_role.set('scheme', 'marc:relators')
+                meta_role.text = 'aut'
+    
+    # Обновляем дату модификации
+    # Ищем meta с property="dcterms:modified"
+    modified_elem = None
+    for meta in root.findall(f'.//{{{opf_ns}}}meta'):
+        if meta.get('property') == 'dcterms:modified':
+            modified_elem = meta
+            break
+    
+    if modified_elem is None:
+        # Создаем новый meta элемент
+        metadata = root.find(f'.//{{{opf_ns}}}metadata')
+        if metadata is not None:
+            meta = ET.SubElement(metadata, f'{{{opf_ns}}}meta')
+            meta.set('property', 'dcterms:modified')
+            modified_elem = meta
+    
+    if modified_elem is not None:
+        modified_elem.set('content', datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'))
+    
+    # Обновляем identifier (генерируем новый UUID)
+    identifier = root.find(f'.//{{{dc_ns}}}identifier[@id="BookId"]')
+    if identifier is not None:
+        identifier.text = f'urn:uuid:{uuid.uuid4()}'
+    
+    # Обновляем обложку в manifest, если создана новая
+    if has_cover:
+        manifest = root.find(f'.//{{{opf_ns}}}manifest')
+        if manifest is not None:
+            # Удаляем старую обложку, если есть
+            for item in list(manifest):
+                href = item.get('href', '')
+                if 'cover' in href.lower() and href.endswith(('.jpg', '.jpeg', '.png')):
+                    manifest.remove(item)
+            
+            # Добавляем новую обложку
+            cover_item = ET.SubElement(manifest, f'{{{opf_ns}}}item')
+            cover_item.set('id', 'cover-image')
+            cover_item.set('href', 'Images/cover.jpg')
+            cover_item.set('media-type', 'image/jpeg')
+            cover_item.set('properties', 'cover-image')
+    
+    # Находим manifest и spine
+    manifest = root.find(f'.//{{{opf_ns}}}manifest')
+    spine = root.find(f'.//{{{opf_ns}}}spine')
+    
+    if manifest is None or spine is None:
+        return opf_content  # Не удалось найти, возвращаем как есть
+    
+    # Удаляем старые Section файлы из manifest и spine
+    for item in list(manifest):
+        href = item.get('href', '')
+        if href.startswith('Text/Section') and href.endswith('.xhtml'):
+            manifest.remove(item)
+    
+    for itemref in list(spine):
+        idref = itemref.get('idref', '')
+        if idref.startswith('Section'):
+            spine.remove(itemref)
+    
+    # Находим позицию для вставки разделов (после последнего не-Section элемента)
+    insert_pos = len(spine)
+    for idx, itemref in enumerate(spine):
+        idref = itemref.get('idref', '')
+        if idref.startswith('Section'):
+            insert_pos = idx
+            break
+    
+    # Добавляем новые разделы в manifest и spine (в правильном порядке)
+    for i, section_file in enumerate(section_files, 1):
+        section_id = f"Section{i:04d}.xhtml"
+        item_id = f"Section{i:04d}"
+        href = f"Text/{section_id}"
+        
+        # Добавляем в manifest
+        item = ET.SubElement(manifest, f'{{{opf_ns}}}item')
+        item.set('id', item_id)
+        item.set('href', href)
+        item.set('media-type', 'application/xhtml+xml')
+        
+        # Добавляем в spine в правильном порядке (последовательно)
+        itemref = ET.Element(f'{{{opf_ns}}}itemref')
+        itemref.set('idref', item_id)
+        spine.insert(insert_pos + i - 1, itemref)
+    
+    # Обновляем guide для обложки
+    if has_cover:
+        guide = root.find(f'.//{{{opf_ns}}}guide')
+        if guide is None:
+            guide = ET.SubElement(root, f'{{{opf_ns}}}guide')
+        
+        # Удаляем старую ссылку на обложку
+        for ref in list(guide):
+            if ref.get('type') == 'cover':
+                guide.remove(ref)
+        
+        # Добавляем новую ссылку на обложку
+        cover_ref = ET.SubElement(guide, f'{{{opf_ns}}}reference')
+        cover_ref.set('type', 'cover')
+        cover_ref.set('title', 'Обложка')
+        cover_ref.set('href', 'Text/cover.xhtml')
+    
+    # Преобразуем обратно в строку
+    # Сохраняем исходные namespace префиксы
+    ET.register_namespace('', opf_ns)
+    ET.register_namespace('dc', dc_ns)
+    ET.register_namespace('dcterms', dcterms_ns)
+    
+    # Преобразуем обратно в строку
+    xml_str = ET.tostring(root, encoding='utf-8', xml_declaration=True).decode('utf-8')
+    # Исправляем форматирование для соответствия оригиналу
+    xml_str = xml_str.replace(' />', '/>')
+    return xml_str
+
+
+def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: str, author: str = "", max_section_size_kb: int = 50):
+    """Генерировать EPUB на основе шаблона и блоков текста"""
+    
+    # Разбиваем на разделы
+    sections = split_into_sections(blocks, max_section_size_kb)
+    print(f"Разбито на {len(sections)} разделов")
+    
+    # Создаем временную директорию
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        
+        # Распаковываем шаблон EPUB
+        with zipfile.ZipFile(template_epub, 'r') as z:
+            z.extractall(tmp_path)
+        
+        oebps_path = tmp_path / "OEBPS"
+        text_path = oebps_path / "Text"
+        images_path = oebps_path / "Images"
+        
+        # Генерируем обложку
+        has_cover_image = False
+        if HAS_PIL:
+            try:
+                cover_image_data = generate_cover_image(title, author)
+                cover_image_path = images_path / "cover.jpg"
+                cover_image_path.write_bytes(cover_image_data)
+                has_cover_image = True
+                print(f"Обложка создана: {cover_image_path}")
+                
+                # Обновляем cover.xhtml для использования новой обложки
+                cover_xhtml_path = text_path / "cover.xhtml"
+                if cover_xhtml_path.exists():
+                    cover_xhtml_content = cover_xhtml_path.read_text(encoding="utf-8")
+                    # Обновляем заголовок
+                    cover_xhtml_content = re.sub(
+                        r'<title>.*?</title>',
+                        f'<title>{hesc(title)}</title>',
+                        cover_xhtml_content,
+                        flags=re.DOTALL
+                    )
+                    # Удаляем старый img тег, если есть (оставляем только SVG)
+                    cover_xhtml_content = re.sub(
+                        r'<img[^>]*src="[^"]*cover[^"]*"[^>]*/>',
+                        '',
+                        cover_xhtml_content,
+                        flags=re.IGNORECASE
+                    )
+                    # Обновляем ссылку на изображение в SVG
+                    cover_xhtml_content = re.sub(
+                        r'<image[^>]*xlink:href="[^"]*"[^>]*>',
+                        '<image width="665" height="1000" xlink:href="../Images/cover.jpg"/>',
+                        cover_xhtml_content,
+                        flags=re.IGNORECASE
+                    )
+                    cover_xhtml_path.write_text(cover_xhtml_content, encoding="utf-8")
+            except Exception as e:
+                print(f"Предупреждение: не удалось создать обложку: {e}")
+        else:
+            print("Предупреждение: Pillow не установлен, обложка не будет создана")
+        
+        # Удаляем старые Section файлы
+        for old_section in text_path.glob("Section*.xhtml"):
+            old_section.unlink()
+        
+        # Читаем content.opf
+        opf_path = oebps_path / "content.opf"
+        opf_content = opf_path.read_text(encoding="utf-8")
+        
+        # Генерируем новые разделы
+        section_files = []
+        for i, section_blocks in enumerate(sections, 1):
+            section_id = f"Section{i:04d}.xhtml"
+            section_title = title
+            # Берем первый заголовок как заголовок раздела, если есть
+            for block in section_blocks:
+                if block.get("role") == "heading":
+                    section_title = block.get("text", title)
+                    break
+            
+            xhtml_content = create_xhtml_section(section_blocks, section_title)
+            section_file = text_path / section_id
+            section_file.write_text(xhtml_content, encoding="utf-8")
+            section_files.append(section_id)
+        
+        # Обновляем титульную страницу
+        titul_path = text_path / "Titul.xhtml"
+        if titul_path.exists():
+            titul_content = titul_path.read_text(encoding="utf-8")
+            # Обновляем заголовок и автора
+            titul_content = re.sub(r'<title>.*?</title>', f'<title>{hesc(title)}</title>', titul_content, flags=re.DOTALL)
+            titul_content = re.sub(r'<h1>.*?</h1>', f'<h1>{hesc(title)}</h1>', titul_content, flags=re.DOTALL)
+            if author:
+                titul_content = re.sub(r'<p class="author">.*?</p>', f'<p class="author">{hesc(author)}</p>', titul_content, flags=re.DOTALL)
+            titul_path.write_text(titul_content, encoding="utf-8")
+        
+        # Обновляем оглавление (toc.ncx)
+        toc_path = oebps_path / "toc.ncx"
+        if toc_path.exists():
+            toc_content = toc_path.read_text(encoding="utf-8")
+            toc_root = ET.fromstring(toc_content)
+            ncx_ns = 'http://www.daisy.org/z3986/2005/ncx/'
+            ncx_ns_map = {'ncx': ncx_ns}
+            
+            # Обновляем заголовок
+            doc_title_elem = toc_root.find('.//ncx:docTitle', ncx_ns_map)
+            if doc_title_elem is not None:
+                doc_title_text = doc_title_elem.find('ncx:text', ncx_ns_map)
+                if doc_title_text is not None:
+                    doc_title_text.text = title
+            
+            # Обновляем navMap - удаляем старые разделы и добавляем новые
+            nav_map = toc_root.find('.//ncx:navMap', ncx_ns_map)
+            if nav_map is not None:
+                # Удаляем старые navPoint для Section
+                for nav_point in list(nav_map):
+                    content = nav_point.find('ncx:content', ncx_ns_map)
+                    if content is not None:
+                        src = content.get('src', '')
+                        if 'Section' in src:
+                            nav_map.remove(nav_point)
+                
+                # Добавляем новые navPoint для разделов
+                for i, section_file in enumerate(section_files, 1):
+                    section_id = f"Section{i:04d}.xhtml"
+                    # Берем заголовок раздела из первого заголовка в секции
+                    section_title = title
+                    if sections and i <= len(sections):
+                        for block in sections[i-1]:
+                            if block.get("role") == "heading":
+                                section_title = block.get("text", title)
+                                break
+                    
+                    nav_point = ET.SubElement(nav_map, f'{{{ncx_ns}}}navPoint')
+                    nav_point.set('id', f'navPoint{i+1}')
+                    nav_point.set('playOrder', str(i+1))
+                    
+                    nav_label = ET.SubElement(nav_point, f'{{{ncx_ns}}}navLabel')
+                    nav_label_text = ET.SubElement(nav_label, f'{{{ncx_ns}}}text')
+                    nav_label_text.text = section_title
+                    
+                    nav_content = ET.SubElement(nav_point, f'{{{ncx_ns}}}content')
+                    nav_content.set('src', f'Text/{section_id}')
+            
+            ET.register_namespace('', ncx_ns)
+            toc_xml = ET.tostring(toc_root, encoding='utf-8', xml_declaration=True).decode('utf-8')
+            toc_path.write_text(toc_xml, encoding="utf-8")
+        
+        # Обновляем content.opf (с обложкой, если создана)
+        updated_opf = update_content_opf(opf_content, section_files, title, author, has_cover_image, sections)
+        opf_path.write_text(updated_opf, encoding="utf-8")
+        
+        # Собираем новый EPUB
+        with zipfile.ZipFile(output_epub, 'w', zipfile.ZIP_DEFLATED) as z:
+            # mimetype должен быть первым и без сжатия
+            mimetype_path = tmp_path / "mimetype"
+            if mimetype_path.exists():
+                z.write(mimetype_path, "mimetype", compress_type=zipfile.ZIP_STORED)
+            
+            # Остальные файлы
+            for file_path in tmp_path.rglob("*"):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(tmp_path)
+                    if rel_path.name != "mimetype":  # mimetype уже добавлен
+                        z.write(file_path, rel_path)
+        
+        print(f"EPUB создан: {output_epub}")
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Генерация EPUB на основе шаблона и текста из JSON или HTML"
+    )
+    ap.add_argument("--template", required=True, help="Путь к шаблону EPUB")
+    ap.add_argument("--in", dest="inp", required=True, help="Входной файл: JSON (structured.json) или HTML")
+    ap.add_argument("--out", required=True, help="Выходной EPUB файл")
+    ap.add_argument("--title", required=True, help="Заголовок книги")
+    ap.add_argument("--author", default="", help="Автор книги (для обложки)")
+    ap.add_argument("--max-section-size", type=int, default=50, help="Максимальный размер раздела в KB (по умолчанию 50)")
+    args = ap.parse_args()
+    
+    template_epub = Path(args.template)
+    input_file = Path(args.inp)
+    output_epub = Path(args.out)
+    
+    if not template_epub.exists():
+        print(f"Ошибка: шаблон EPUB не найден: {template_epub}")
+        return 1
+    
+    if not input_file.exists():
+        print(f"Ошибка: входной файл не найден: {input_file}")
+        return 1
+    
+    # Загружаем блоки
+    if input_file.suffix.lower() == ".json":
+        blocks = load_blocks_from_json(input_file)
+    elif input_file.suffix.lower() in [".html", ".htm"]:
+        blocks = load_blocks_from_html(input_file)
+    else:
+        print(f"Ошибка: неподдерживаемый формат входного файла: {input_file.suffix}")
+        print("Поддерживаются: .json, .html, .htm")
+        return 1
+    
+    if not blocks:
+        print("Ошибка: не найдено блоков текста")
+        return 1
+    
+    print(f"Загружено {len(blocks)} блоков")
+    
+    # Генерируем EPUB
+    generate_epub(template_epub, blocks, output_epub, args.title, args.author, args.max_section_size)
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
+

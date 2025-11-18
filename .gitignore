@@ -19,6 +19,9 @@ output_vol2/
 # PDF files
 *.pdf
 
+# EPUB files
+*.epub
+
 # Environment variables
 .env
 
