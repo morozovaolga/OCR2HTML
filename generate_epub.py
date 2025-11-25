@@ -23,6 +23,61 @@ def load_blocks_from_json(json_path: Path):
     return data.get("blocks", [])
 
 
+def looks_like_section_heading(line: str) -> bool:
+    """Проверить, начинается ли строка с признака заголовка (Часть/Глава/Раздел/Книга, римское число, ***)."""
+    if not line:
+        return False
+    stripped = line.strip()
+    if not stripped:
+        return False
+
+    keyword_pattern = re.compile(r'^(?:Часть|Глава|Раздел|Книга)\b.*\d', re.IGNORECASE)
+    if keyword_pattern.match(stripped):
+        return True
+
+    if re.match(r'^[IVXLCDM]+\b', stripped, re.IGNORECASE):
+        return True
+
+    if re.match(r'^\*\s*\*\s*\*', stripped):
+        return True
+
+    return False
+
+
+def paragraphs_to_blocks(paragraphs):
+    """Преобразовать список абзацев в блоки (heading/paragraph)"""
+    blocks = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        lines = [line.strip() for line in para.splitlines() if line.strip()]
+        if not lines:
+            continue
+
+        first_line = lines[0]
+        is_heading = (
+            (len(first_line) < 100 and
+             (
+                 first_line.isupper() or
+                 (len(lines) == 1 and len(first_line) < 50)
+             ) and
+             not first_line.endswith(('.', ',', ';', ':', '!', '?')))
+            or looks_like_section_heading(first_line)
+        )
+
+        para_text = ' '.join(lines).strip()
+        para_text = re.sub(r'\s+', ' ', para_text)
+
+        if para_text:
+            blocks.append({
+                "role": "heading" if is_heading else "paragraph",
+                "text": para_text
+            })
+    return blocks
+
+
 def load_blocks_from_html(html_path: Path):
     """Загрузить блоки из HTML файла (парсит h2, p и pre теги)"""
     html = html_path.read_text(encoding="utf-8")
@@ -37,68 +92,33 @@ def load_blocks_from_html(html_path: Path):
     pre_match = re.search(pre_pattern, html, re.DOTALL | re.IGNORECASE)
     
     if pre_match:
-        # Обрабатываем pre тег - разбиваем на абзацы по пустым строкам
         pre_content = pre_match.group(1)
         # Декодируем HTML entities
         pre_content = pre_content.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
         # Убираем HTML теги, если есть
         pre_content = re.sub(r'<[^>]+>', '', pre_content)
         
-        # Разбиваем на абзацы по двойным переносам строк или одиночным переносам с пустой строкой
         paragraphs = re.split(r'\n\s*\n', pre_content)
-        
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
-            
-            # Определяем, является ли абзац заголовком (короткий, все заглавные, или в верхнем регистре)
-            lines = para.split('\n')
-            first_line = lines[0].strip()
-            
-            # Если первая строка короткая и в верхнем регистре - считаем заголовком
-            is_heading = (
-                len(first_line) < 100 and 
-                (first_line.isupper() or 
-                 len(lines) == 1 and len(first_line) < 50) and
-                not first_line.endswith(('.', ',', ';', ':', '!', '?'))
-            )
-            
-            # Объединяем строки абзаца
-            para_text = ' '.join(line.strip() for line in lines if line.strip())
-            para_text = re.sub(r'\s+', ' ', para_text).strip()
-            
-            if para_text:
-                blocks.append({
-                    "role": "heading" if is_heading else "paragraph",
-                    "text": para_text
-                })
+        blocks.extend(paragraphs_to_blocks(paragraphs))
     else:
-        # Обрабатываем h2 и p теги (формат modernize_structured.py)
         pos = 0
         while pos < len(html):
-            # Ищем следующий h2 или p
             h2_match = re.search(h2_pattern, html[pos:], re.DOTALL | re.IGNORECASE)
             p_match = re.search(p_pattern, html[pos:], re.DOTALL | re.IGNORECASE)
             
             if h2_match and (not p_match or h2_match.start() < p_match.start()):
-                # Найден h2
                 text = h2_match.group(1)
-                # Убираем HTML теги, но сохраняем текст из mark тегов (для флагов)
                 text = re.sub(r'<mark[^>]*>(.*?)</mark>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
                 text = re.sub(r'<[^>]+>', '', text)
-                # Декодируем HTML entities
                 text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
                 text = re.sub(r'\s+', ' ', text).strip()
                 if text:
                     blocks.append({"role": "heading", "text": text})
                 pos += h2_match.end()
             elif p_match:
-                # Найден p
                 text = p_match.group(1)
                 text = re.sub(r'<mark[^>]*>(.*?)</mark>', r'\1', text, flags=re.DOTALL | re.IGNORECASE)
                 text = re.sub(r'<[^>]+>', '', text)
-                # Декодируем HTML entities
                 text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
                 text = re.sub(r'\s+', ' ', text).strip()
                 if text:
@@ -110,36 +130,58 @@ def load_blocks_from_html(html_path: Path):
     return blocks
 
 
-def split_into_sections(blocks, max_size_kb=50):
-    """Разбить блоки на разделы по заголовкам или размеру"""
-    sections = []
-    current_section = []
+def load_blocks_from_text(text: str):
+    """Загрузить блоки из plain text файла (final_clean.txt или final.txt)"""
+    paragraphs = re.split(r'\n\s*\n', text)
+    if len(paragraphs) <= 1 and '\n' in text:
+        paragraphs = text.splitlines()
+    return paragraphs_to_blocks(paragraphs)
+
+
+def split_into_chapters(blocks, max_size_kb=50):
+    """Разбить блоки по главах (заголовки) и по размеру, если заголовков нет."""
+    chapters = []
+    current_blocks = []
+    current_title = None
     current_size = 0
-    max_size = max_size_kb * 1024  # в байтах
-    
+    chapter_index = 1
+    max_size = max_size_kb * 1024
+
+    def flush():
+        nonlocal current_blocks, current_title, current_size, chapter_index
+        if not current_blocks:
+            return
+        title = current_title or f"Глава {chapter_index}"
+        chapters.append({"title": title, "blocks": current_blocks})
+        chapter_index += 1
+        current_blocks = []
+        current_title = None
+        current_size = 0
+
     for block in blocks:
-        block_text = block.get("text", "")
-        block_size = len(block_text.encode("utf-8"))
-        
-        # Если это заголовок и текущий раздел не пуст, начинаем новый раздел
-        if block.get("role") == "heading" and current_section:
-            sections.append(current_section)
-            current_section = [block]
+        text = block.get("text", "").strip()
+        block_size = len(text.encode("utf-8"))
+        role = block.get("role")
+
+        if role == "heading":
+            if current_blocks:
+                flush()
+            current_title = text or f"Глава {chapter_index}"
+            current_blocks.append(block)
             current_size = block_size
-        else:
-            # Если добавление блока превысит лимит и раздел не пуст, начинаем новый
-            if current_section and (current_size + block_size) > max_size:
-                sections.append(current_section)
-                current_section = [block]
-                current_size = block_size
-            else:
-                current_section.append(block)
-                current_size += block_size
-    
-    if current_section:
-        sections.append(current_section)
-    
-    return sections
+            continue
+
+        if current_blocks and current_size + block_size > max_size:
+            flush()
+
+        if not current_blocks:
+            current_title = f"Глава {chapter_index}"
+
+        current_blocks.append(block)
+        current_size += block_size
+
+    flush()
+    return chapters
 
 
 def generate_cover_image(title: str, author: str = "", width: int = 1200, height: int = 1600) -> bytes:
@@ -149,42 +191,21 @@ def generate_cover_image(title: str, author: str = "", width: int = 1200, height
     
     import random
     import colorsys
-    
-    # Генерируем случайную цветовую схему из 3 гармоничных цветов
-    # Используем цветовой круг: выбираем базовый оттенок, затем берем соседние гармоничные цвета
-    
-    # Выбираем случайный базовый оттенок (0-360 градусов в HSV)
-    base_hue = random.uniform(0, 1)  # 0-1 в colorsys (это 0-360°)
-    
-    # Генерируем 3 гармоничных цвета:
-    # 1. Базовый цвет (верх)
-    # 2. Цвет со сдвигом на 30-60° (середина) 
-    # 3. Цвет со сдвигом на 60-120° (низ)
-    
-    # Настройки для гармоничных цветов
-    saturation = random.uniform(0.4, 0.7)  # Насыщенность
-    value_top = random.uniform(0.15, 0.25)  # Яркость для верха (темнее)
-    value_mid = random.uniform(0.3, 0.5)   # Яркость для середины
-    value_bottom = random.uniform(0.4, 0.6) # Яркость для низа (светлее)
-    
-    # Генерируем 3 цвета в HSV, затем конвертируем в RGB
-    hue_shift1 = random.uniform(0.08, 0.15)  # Сдвиг для второго цвета (30-54°)
-    hue_shift2 = random.uniform(0.15, 0.25)  # Сдвиг для третьего цвета (54-90°)
-    
-    # Цвет 1 (верх) - базовый, темнее
-    color1_hsv = (base_hue, saturation, value_top)
-    color1_rgb = colorsys.hsv_to_rgb(*color1_hsv)
-    top_color = tuple(int(c * 255) for c in color1_rgb)
-    
-    # Цвет 2 (середина) - с небольшим сдвигом оттенка
-    color2_hsv = ((base_hue + hue_shift1) % 1.0, saturation, value_mid)
-    color2_rgb = colorsys.hsv_to_rgb(*color2_hsv)
-    mid_color = tuple(int(c * 255) for c in color2_rgb)
-    
-    # Цвет 3 (низ) - с большим сдвигом оттенка
-    color3_hsv = ((base_hue + hue_shift2) % 1.0, saturation, value_bottom)
-    color3_rgb = colorsys.hsv_to_rgb(*color3_hsv)
-    bottom_color = tuple(int(c * 255) for c in color3_rgb)
+
+    rand = random.Random()
+    colors = []
+    for _ in range(3):
+        hue = rand.random()
+        sat = rand.uniform(0.45, 0.75)
+        val = rand.uniform(0.35, 0.8)
+        rgb = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val))
+        colors.append((val, rgb))
+
+    # Сортируем цвета по яркости, чтобы сверху был темный оттенок, внизу – светлый
+    colors.sort(key=lambda item: item[0])
+    top_color = colors[0][1]
+    mid_color = colors[1][1]
+    bottom_color = colors[2][1]
     
     # Создаем изображение с градиентом
     img = Image.new('RGB', (width, height), color=top_color)
@@ -401,26 +422,26 @@ def update_content_opf(opf_content: str, section_files: list, title: str, author
     # Удаляем старые Section файлы из manifest и spine
     for item in list(manifest):
         href = item.get('href', '')
-        if href.startswith('Text/Section') and href.endswith('.xhtml'):
+        if href.startswith('Text/Chapter') and href.endswith('.xhtml'):
             manifest.remove(item)
     
     for itemref in list(spine):
         idref = itemref.get('idref', '')
-        if idref.startswith('Section'):
+        if idref.startswith('Chapter'):
             spine.remove(itemref)
     
     # Находим позицию для вставки разделов (после последнего не-Section элемента)
     insert_pos = len(spine)
     for idx, itemref in enumerate(spine):
         idref = itemref.get('idref', '')
-        if idref.startswith('Section'):
+        if idref.startswith('Chapter'):
             insert_pos = idx
             break
     
     # Добавляем новые разделы в manifest и spine (в правильном порядке)
-    for i, section_file in enumerate(section_files, 1):
-        section_id = f"Section{i:04d}.xhtml"
-        item_id = f"Section{i:04d}"
+        for i, section_file in enumerate(section_files, 1):
+            section_id = f"Chapter{i:04d}.xhtml"
+            item_id = f"Chapter{i:04d}"
         href = f"Text/{section_id}"
         
         # Добавляем в manifest
@@ -464,12 +485,12 @@ def update_content_opf(opf_content: str, section_files: list, title: str, author
     return xml_str
 
 
-def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: str, author: str = "", max_section_size_kb: int = 50):
+def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: str, author: str = "", max_chapter_size_kb: int = 50):
     """Генерировать EPUB на основе шаблона и блоков текста"""
     
     # Разбиваем на разделы
-    sections = split_into_sections(blocks, max_section_size_kb)
-    print(f"Разбито на {len(sections)} разделов")
+    sections = split_into_chapters(blocks, max_size_kb=max_chapter_size_kb)
+    print(f"Разбито на {len(sections)} глав (макс. {max_chapter_size_kb} KB)")
     
     # Создаем временную директорию
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -534,15 +555,10 @@ def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: s
         
         # Генерируем новые разделы
         section_files = []
-        for i, section_blocks in enumerate(sections, 1):
-            section_id = f"Section{i:04d}.xhtml"
-            section_title = title
-            # Берем первый заголовок как заголовок раздела, если есть
-            for block in section_blocks:
-                if block.get("role") == "heading":
-                    section_title = block.get("text", title)
-                    break
-            
+        for i, chapter in enumerate(sections, 1):
+            section_blocks = chapter.get("blocks", [])
+            section_id = f"Chapter{i:04d}.xhtml"
+            section_title = chapter.get("title") or title
             xhtml_content = create_xhtml_section(section_blocks, section_title)
             section_file = text_path / section_id
             section_file.write_text(xhtml_content, encoding="utf-8")
@@ -582,19 +598,13 @@ def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: s
                     content = nav_point.find('ncx:content', ncx_ns_map)
                     if content is not None:
                         src = content.get('src', '')
-                        if 'Section' in src:
+                        if 'Chapter' in src:
                             nav_map.remove(nav_point)
                 
                 # Добавляем новые navPoint для разделов
-                for i, section_file in enumerate(section_files, 1):
-                    section_id = f"Section{i:04d}.xhtml"
-                    # Берем заголовок раздела из первого заголовка в секции
-                    section_title = title
-                    if sections and i <= len(sections):
-                        for block in sections[i-1]:
-                            if block.get("role") == "heading":
-                                section_title = block.get("text", title)
-                                break
+                for i, (section_file, chapter) in enumerate(zip(section_files, sections), 1):
+                    section_id = f"Chapter{i:04d}.xhtml"
+                    section_title = chapter.get("title", title)
                     
                     nav_point = ET.SubElement(nav_map, f'{{{ncx_ns}}}navPoint')
                     nav_point.set('id', f'navPoint{i+1}')
@@ -634,14 +644,14 @@ def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: s
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Генерация EPUB на основе шаблона и текста из JSON или HTML"
+        description="Генерация EPUB на основе шаблона и текста из JSON, HTML или TXT"
     )
     ap.add_argument("--template", required=True, help="Путь к шаблону EPUB")
-    ap.add_argument("--in", dest="inp", required=True, help="Входной файл: JSON (structured.json) или HTML")
+    ap.add_argument("--in", dest="inp", required=True, help="Входной файл: JSON (structured.json), HTML или TXT")
     ap.add_argument("--out", required=True, help="Выходной EPUB файл")
     ap.add_argument("--title", required=True, help="Заголовок книги")
     ap.add_argument("--author", default="", help="Автор книги (для обложки)")
-    ap.add_argument("--max-section-size", type=int, default=50, help="Максимальный размер раздела в KB (по умолчанию 50)")
+    ap.add_argument("--max-chapter-size", type=int, default=50, help="Максимальный размер главы в KB (по умолчанию 50)")
     args = ap.parse_args()
     
     template_epub = Path(args.template)
@@ -657,10 +667,14 @@ def main():
         return 1
     
     # Загружаем блоки
-    if input_file.suffix.lower() == ".json":
+    suffix = input_file.suffix.lower()
+    if suffix == ".json":
         blocks = load_blocks_from_json(input_file)
-    elif input_file.suffix.lower() in [".html", ".htm"]:
+    elif suffix in (".html", ".htm"):
         blocks = load_blocks_from_html(input_file)
+    elif suffix == ".txt":
+        text_content = input_file.read_text(encoding="utf-8")
+        blocks = load_blocks_from_text(text_content)
     else:
         print(f"Ошибка: неподдерживаемый формат входного файла: {input_file.suffix}")
         print("Поддерживаются: .json, .html, .htm")
@@ -673,7 +687,7 @@ def main():
     print(f"Загружено {len(blocks)} блоков")
     
     # Генерируем EPUB
-    generate_epub(template_epub, blocks, output_epub, args.title, args.author, args.max_section_size)
+    generate_epub(template_epub, blocks, output_epub, args.title, args.author, max_chapter_size_kb=args.max_chapter_size)
     
     return 0
 

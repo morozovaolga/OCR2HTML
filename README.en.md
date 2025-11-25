@@ -20,8 +20,8 @@ Quick Start
   - Basic (paragraph preservation + spelling correction):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)"
   - With optional steps:
-    - Add LanguageTool (cloud) and post-cleanup:
-      - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --post-clean
+  - Add LanguageTool (cloud) and post-cleanup (optionally followed by Yandex.Speller):
+      - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --with-yandex --post-clean
   - For PDFs with two columns per page (left column first, then right):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --two-columns
   - With Ollama grammar correction (recommended, local):
@@ -29,6 +29,7 @@ Quick Start
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama --ollama-model llama3.1:8b
   - With EPUB generation (requires EPUB template and Pillow):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --epub-template sample.epub --epub-author "Author Name"
+    - (Optional) add `--epub-max-chapter-size KB` to force splitting into sized chapters when there are no clear headings (default 50)
 
 Outputs (in out/)
 - structured.json — block structure per page (roles: heading/paragraph)
@@ -52,20 +53,19 @@ How it works
 5) (optional) post_cleanup.py — joins spaced letters, fixes intraword gaps, converts Latin→Cyrillic.
 6) (optional) gigachat_check.py or ollama_check.py — AI-powered grammar and OCR error correction.
 
-How LanguageTool (--lt-cloud) works:
-LanguageTool is a cloud-based grammar and spelling checker. This project uses it only for safe automatic corrections.
+How LanguageTool and Yandex.Speller work together:
+LanguageTool is a cloud-based grammar and spelling checker. This project uses it only for safe automatic corrections, without changing style or grammar.
 
 What it does:
-1. Sends text in chunks (by paragraphs, up to 6000 characters) to LanguageTool cloud API
+1. Sends text in chunks (by paragraphs, up to 6000 characters by default, adjustable via `--chunk-size`) to the LanguageTool cloud API
 2. Receives a list of found errors and suggested fixes
 3. Applies only "safe" fixes:
    - Spelling errors (MORFOLOGIK) — e.g., "машына" → "машина", "карова" → "корова"
    - Whitespace (WHITESPACE, SPACE) — extra or missing spaces
    - Multiple spaces (MULTIPLE_SPACES) — "two   spaces" → "two spaces"
    - Double punctuation (DOUBLE_PUNCTUATION) — "??" → "?"
-4. Ignores stylistic and grammar rules — only safe spelling corrections
-5. Applies the first suggested fix for each safe match
-6. Avoids overlapping corrections
+4. Applies the first suggested fix for each safe match and avoids overlapping corrections
+5. Optionally (`--with-yandex`) runs Yandex.Speller after LanguageTool for an extra pass of simple spelling fixes (language override via `--yandex-lang`)
 
 What it does NOT do:
 - Does not fix style
@@ -154,11 +154,13 @@ Requirements:
 2. Pillow installed: pip install Pillow
 
 What it does:
-1. Uses the best available text source (priority: final_ollama.html > final_gigachat.html > final_better.html > final_clean.html > final.html)
-2. Splits text into sections (by headings or size, up to 50 KB per section)
-3. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
-4. Updates title page and table of contents
-5. Creates EPUB file in out/ folder
+1. Uses the best available text source (priority: final_ollama.html > final_gigachat.html > final_better.html > final_clean.txt > final_clean.html > final.txt > structured_rules.json > structured.json)
+2. When reading `.txt` (e.g., `final_clean.txt`), paragraphs that start with `Часть`, `Глава`, `Раздел`, `Книга` (with a number), `***`, or a Roman numeral are treated as headings so the text can still be split into chapters even without markup
+3. Splits text into sections — by headings when present, otherwise by size (controlled by `--max-chapter-size`, defaults to ~50 KB) — so no paragraph disappears and you don’t end up with a single enormous file
+4. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
+5. Updates title page and table of contents
+6. Creates EPUB file in out/ folder
+7. `generate_epub.py` can read plain `.txt` files (e.g., `final_clean.txt` from LanguageTool), so EPUB always uses the latest corrected text
 
 Example usage:
 ```bash

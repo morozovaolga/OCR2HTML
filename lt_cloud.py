@@ -1,9 +1,10 @@
 import argparse
 import json
 import time
+from abc import ABC, abstractmethod
 from html import escape as hesc
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 from urllib import request, parse
 
 
@@ -37,6 +38,87 @@ def chunks_by_paragraphs(text: str, max_len: int = 6000) -> List[str]:
     return out
 
 
+class SpellChecker(ABC):
+    name = "checker"
+
+    @abstractmethod
+    def check(self, text: str) -> List[Dict]:
+        raise NotImplementedError
+
+
+class LanguageToolChecker(SpellChecker):
+    name = "LanguageTool"
+
+    def __init__(self, lang: str = 'ru-RU', timeout: int = 60):
+        self.lang = lang
+        self.timeout = timeout
+
+    def check(self, text: str) -> List[Dict]:
+        matches = cloud_check(text, self.lang, timeout=self.timeout)
+        safe = [
+            m for m in matches
+            if is_safe((m.get('rule') or {}).get('id'))
+        ]
+        return safe
+
+
+class YandexSpellerChecker(SpellChecker):
+    name = "Yandex.Speller"
+
+    def __init__(self, lang: str = 'ru', timeout: int = 60):
+        self.lang = lang
+        self.timeout = timeout
+
+    def check(self, text: str) -> List[Dict]:
+        url = 'https://speller.yandex.net/services/spellservice.json/checkText'
+        data = parse.urlencode({
+            'text': text,
+            'lang': self.lang,
+            'format': 'json'
+        }).encode('utf-8')
+        req = request.Request(url, data=data, headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        })
+        with request.urlopen(req, timeout=self.timeout) as resp:
+            payload = resp.read().decode('utf-8', errors='replace')
+        entries = json.loads(payload)
+        matches = []
+        for entry in entries:
+            replacements = entry.get('s') or []
+            if not replacements:
+                continue
+            matches.append({
+                'offset': entry.get('pos', 0),
+                'length': entry.get('len', 0),
+                'replacements': [{'value': replacements[0]}],
+                'rule': {'id': 'YANDEX', 'description': entry.get('word')}
+            })
+        return matches
+
+
+def run_spell_pipeline(text: str, checkers: List[SpellChecker], chunk_size: int, sleep: float):
+    parts = chunks_by_paragraphs(text, max_len=chunk_size)
+    fixed_parts = []
+    stats = {checker.name: 0 for checker in checkers}
+
+    for part in parts:
+        part_text = part
+        for checker in checkers:
+            try:
+                matches = checker.check(part_text)
+            except Exception as exc:
+                print(f"[{checker.name}] ошибка запроса: {exc}")
+                matches = []
+            if not matches:
+                continue
+            part_text = apply_matches(part_text, matches)
+            stats[checker.name] += len(matches)
+        fixed_parts.append(part_text)
+        time.sleep(sleep)
+
+    return "".join(fixed_parts), stats
+
+
 def cloud_check(text: str, lang: str = 'ru-RU', timeout: int = 60):
     url = 'https://api.languagetool.org/v2/check'
     data = parse.urlencode({'text': text, 'language': lang}).encode('utf-8')
@@ -52,8 +134,7 @@ def cloud_check(text: str, lang: str = 'ru-RU', timeout: int = 60):
 
 
 def apply_matches(text: str, matches) -> str:
-    # Apply first replacement for each safe, non-overlapping match
-    matches = [m for m in matches if is_safe((m.get('rule') or {}).get('id'))]
+    """Apply replacements for each non-overlapping match."""
     matches.sort(key=lambda m: m.get('offset', 0))
     res, i, last_end = [], 0, 0
     for m in matches:
@@ -92,6 +173,9 @@ def main():
     ap.add_argument('--title', default='Документ (LT)', help='Заголовок HTML')
     ap.add_argument('--sleep', type=float, default=0.5, help='Пауза между запросами (сек)')
     ap.add_argument('--timeout', type=int, default=60, help='Таймаут HTTP (сек)')
+    ap.add_argument('--chunk-size', type=int, default=6000, help='Максимум символов для одного запроса')
+    ap.add_argument('--with-yandex', action='store_true', help='После LanguageTool применить Yandex.Speller')
+    ap.add_argument('--yandex-lang', default='ru', help='Язык для Yandex.Speller (по умолчанию ru)')
     args = ap.parse_args()
 
     inp = Path(args.inp)
@@ -99,21 +183,21 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     text = inp.read_text(encoding='utf-8', errors='replace')
-    parts = chunks_by_paragraphs(text)
-    fixed_parts = []
-    total_safe = 0
-    for part in parts:
-        try:
-            matches = cloud_check(part, 'ru-RU', timeout=args.timeout)
-        except Exception:
-            matches = []
-        total_safe += sum(1 for m in matches if is_safe((m.get('rule') or {}).get('id')))
-        fixed_parts.append(apply_matches(part, matches))
-        time.sleep(args.sleep)
-    fixed_text = "".join(fixed_parts)
+    checkers = [LanguageToolChecker(lang='ru-RU', timeout=args.timeout)]
+    if args.with_yandex:
+        checkers.append(YandexSpellerChecker(lang=args.yandex_lang, timeout=args.timeout))
+
+    fixed_text, stats = run_spell_pipeline(
+        text,
+        checkers,
+        chunk_size=args.chunk_size,
+        sleep=args.sleep,
+    )
     (outdir / 'final_clean.txt').write_text(fixed_text, encoding='utf-8')
     (outdir / 'final_clean.html').write_text(to_html(fixed_text, args.title), encoding='utf-8')
-    print(f'Applied safe fixes: {total_safe}. Saved final_clean.txt/html in {outdir}')
+    total_safe = sum(stats.values())
+    detail = ", ".join(f"{name}: {count}" for name, count in stats.items())
+    print(f'Applied safe fixes: {total_safe} ({detail}). Saved final_clean.txt/html in {outdir}')
 
 
 if __name__ == '__main__':

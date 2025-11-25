@@ -18,6 +18,9 @@ def main():
     ap.add_argument("--title", default="Document (modern Russian)", help="HTML title")
     ap.add_argument("--no-oldspelling", action="store_true", help="Skip applying rules from oldspelling.py")
     ap.add_argument("--lt-cloud", action="store_true", help="Run LanguageTool (cloud) safe fixes after modernization")
+    ap.add_argument("--with-yandex", action="store_true", help="After LanguageTool, pass text through Yandex.Speller as an extra layer")
+    ap.add_argument("--yandex-lang", default="ru", help="Language code for Yandex.Speller (default: ru)")
+    ap.add_argument("--chunk-size", type=int, default=6000, help="Maximum characters per LanguageTool/Yandex request (default: 6000)")
     ap.add_argument("--post-clean", action="store_true", help="Run post-cleanup: join spaced letters, fix intraword gaps, Latin→Cyrillic")
     ap.add_argument("--gigachat", action="store_true", help="Run GigaChat API grammar and OCR error correction (requires GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET env vars)")
     ap.add_argument("--ollama", action="store_true", help="Run Ollama (local) grammar and OCR error correction (requires Ollama to be running)")
@@ -25,6 +28,7 @@ def main():
     ap.add_argument("--two-columns", action="store_true", help="Process pages with two columns: left column first, then right column")
     ap.add_argument("--epub-template", nargs='?', const="sample.epub", help="Path to EPUB template file (default: sample.epub in project root). If provided, generates EPUB from the best available HTML/JSON")
     ap.add_argument("--epub-author", default="", help="Author name for EPUB cover generation")
+    ap.add_argument("--epub-max-chapter-size", type=int, default=50, help="Maximum chapter size in KB for EPUB sections (default: 50)")
     args = ap.parse_args()
 
     here = Path(__file__).parent
@@ -48,7 +52,17 @@ def main():
 
     # 4) (optional) LanguageTool cloud: write final_clean.*
     if args.lt_cloud:
-        run([sys.executable, str(here / "lt_cloud.py"), "--in", str(outdir / "final.txt"), "--outdir", str(outdir), "--title", args.title + " (LT)"])
+        lt_cmd = [
+            sys.executable, str(here / "lt_cloud.py"),
+            "--in", str(outdir / "final.txt"),
+            "--outdir", str(outdir),
+            "--title", args.title + " (LT)",
+            "--chunk-size", str(args.chunk_size),
+        ]
+        if args.with_yandex:
+            lt_cmd.append("--with-yandex")
+            lt_cmd.extend(["--yandex-lang", args.yandex_lang])
+        run(lt_cmd)
 
     # 5) (optional) Post-cleanup: write final_better.* from final_clean.txt if present, else final.txt
     if args.post_clean:
@@ -85,24 +99,21 @@ def main():
             # Определяем лучший источник: HTML или JSON
             # Приоритет: final_ollama.html > final_gigachat.html > final_better.html > final_clean.html > final.html
             # Или structured_rules.json > structured.json
+            candidates = [
+                outdir / "final_ollama.html",
+                outdir / "final_gigachat.html",
+                outdir / "final_better.html",
+                outdir / "final_clean.txt",
+                outdir / "final_clean.html",
+                outdir / "final.txt",
+                outdir / "structured_rules.json",
+                outdir / "structured.json",
+            ]
             source_file = None
-            source_type = None
-            
-            # Пробуем HTML файлы
-            for html_file in [outdir / "final_ollama.html", outdir / "final_gigachat.html", 
-                             outdir / "final_better.html", outdir / "final_clean.html", outdir / "final.html"]:
-                if html_file.exists():
-                    source_file = html_file
-                    source_type = "html"
+            for candidate in candidates:
+                if candidate.exists():
+                    source_file = candidate
                     break
-            
-            # Если HTML не найден, пробуем JSON
-            if source_file is None:
-                for json_file in [outdir / "structured_rules.json", outdir / "structured.json"]:
-                    if json_file.exists():
-                        source_file = json_file
-                        source_type = "json"
-                        break
             
             if source_file and source_file.exists():
                 output_epub = outdir / f"{args.title.replace(' ', '_')}.epub"
@@ -113,6 +124,7 @@ def main():
                            "--title", args.title]
                 if args.epub_author:
                     epub_cmd.extend(["--author", args.epub_author])
+                epub_cmd.extend(["--max-chapter-size", str(args.epub_max_chapter_size)])
                 run(epub_cmd)
             else:
                 print("Warning: No suitable source file found for EPUB generation")
