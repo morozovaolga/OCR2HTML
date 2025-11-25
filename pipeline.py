@@ -86,7 +86,11 @@ def main():
 
     # 8) (optional) Generate EPUB from template
     if args.epub_template:
-        template_epub = Path(args.epub_template)
+        final_clean_txt = outdir / "final_clean.txt"
+        if not final_clean_txt.exists():
+            print(f"Warning: {final_clean_txt.name} не найден — EPUB пропущен.")
+        else:
+            template_epub = Path(args.epub_template)
         # Если путь относительный, пробуем найти в корне проекта
         if not template_epub.is_absolute():
             if (here / template_epub).exists():

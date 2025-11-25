@@ -27,8 +27,8 @@ Quick Start
   - With Ollama grammar correction (recommended, local):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama --ollama-model llama3.1:8b
-  - With EPUB generation (requires EPUB template and Pillow):
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --epub-template sample.epub --epub-author "Author Name"
+  - With EPUB generation (requires EPUB template and Pillow; `final_clean.txt` must exist):
+    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --epub-template sample.epub --epub-author "Author Name"
     - (Optional) add `--epub-max-chapter-size KB` to force splitting into sized chapters when there are no clear headings (default 50)
 
 Outputs (in out/)
@@ -159,7 +159,7 @@ What it does:
 3. Splits text into sections — by headings when present, otherwise by size (controlled by `--max-chapter-size`, defaults to ~50 KB) — so no paragraph disappears and you don’t end up with a single enormous file
 4. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
 5. Updates title page and table of contents
-6. Creates EPUB file in out/ folder
+6. Creates EPUB file in out/ folder (skipped if `final_clean.txt` is missing)
 7. `generate_epub.py` can read plain `.txt` files (e.g., `final_clean.txt` from LanguageTool), so EPUB always uses the latest corrected text
 
 Example usage:
@@ -171,6 +171,12 @@ python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-column
 python generate_epub.py --template sample.epub --in out/final_ollama.html --out out/book.epub --title "Book Title" --author "Author Name"
 ```
 
+Optional name-validation step (PDF must already be in modern spelling):
+```bash
+python compare_pdf_clean_names.py --pdf book.pdf --clean out/final_clean.txt --modern-pdf --out out/name_diff.txt
+```
+The script lists mismatches between title-like phrases extracted from the PDF and the cleaned text to highlight typos before EPUB finalization.
+
 Features:
 - Automatic cover generation with gradient from 3 harmonious colors
 - Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
@@ -178,6 +184,7 @@ Features:
 - Updated table of contents (toc.ncx) with new sections
 - Supports both HTML (final_*.html) and JSON (structured*.json) as source
 
+- compare_pdf_clean_names.py — optional name validation between modern PDF and final_clean.txt
 Repository layout
 - pipeline.py                 — orchestrator
 - extract_structured_text.py  — structure extraction
