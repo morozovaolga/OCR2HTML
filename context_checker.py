@@ -1,7 +1,11 @@
 import argparse
+import inspect
 import re
 from pathlib import Path
 from typing import Iterable
+
+if not hasattr(inspect, "getargspec"):
+    inspect.getargspec = inspect.getfullargspec  # type: ignore[attr-defined]
 
 from pymorphy2 import MorphAnalyzer
 
