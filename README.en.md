@@ -130,7 +130,18 @@ Natasha (NER) for richer entity comparison:
 python natasha_entity_check.py --pdf sn.pdf --clean out/final_clean.txt --out out/sn_natasha.txt --types PER,LOC,ORG
 ```
 This utility extracts named entities (persons, locations, organizations) with Natasha and compares their normalized forms between the PDF and `final_clean.txt`, reporting only entities that appear in one source but not the other. Use `--types PER,LOC` to include or exclude classes.
-You can also enable the same check inside `pipeline.py` with `--natasha-check`, and control the output file with `--natasha-out` (`natasha_diff.txt` by default).
+
+Natasha-based harmonization:
+```bash
+python natasha_sync.py --pdf sn.pdf --clean out/final_clean.txt --report out/sn_natasha_sync.txt --types PER,LOC,ORG
+```
+It rewrites `final_clean.txt`, replacing the entity strings that survived the modernization step with the forms from the PDF, so the EPUB can reuse the verified names and geographies.
+
+Run both steps inside `pipeline.py` with:
+```bash
+python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natasha.txt --natasha-sync-report out/sn_natasha_sync.txt
+```
+The flags `--natasha-types`, `--natasha-check`, and `--natasha-sync` sequentially run the Natasha comparison and harmonization before EPUB generation.
 
 Features:
 - Automatic cover generation with gradient from 3 harmonious colors
@@ -149,6 +160,7 @@ Repository layout
 - gigachat_check.py           — GigaChat API integration (experimental)
 - generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
 - natasha_entity_check.py      — optional named-entity comparison (PER/LOC/ORG) between PDF and final_clean.txt via Natasha
+- natasha_sync.py              — harmonize `final_clean.txt` with PDF entity forms via Natasha
 - oldspelling.py              — pre‑reform spelling rules (regex map)
 - requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
 

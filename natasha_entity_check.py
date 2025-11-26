@@ -53,6 +53,18 @@ class NatashaPipeline:
         return mentions
 
 
+def parse_types(types: str) -> List[str]:
+    return [tok.strip().upper() for tok in types.split(",") if tok.strip()]
+
+
+def collect_mentions(text: str, allowed_types: Sequence[str], deduplicate: bool = True) -> List[Mention]:
+    pipeline = NatashaPipeline()
+    mentions = pipeline.extract(text, allowed_types)
+    if deduplicate:
+        return dedupe(mentions)
+    return mentions
+
+
 def dedupe(mentions: Iterable[Mention]) -> List[Mention]:
     seen = set()
     unique = []
@@ -118,18 +130,13 @@ def main():
         if not path.exists():
             parser.error(f"Файл не найден: {path}")
 
-    pipeline = NatashaPipeline()
-    allowed = [tok.strip().upper() for tok in args.types.split(",") if tok.strip()]
+    allowed = parse_types(args.types)
 
     pdf_text = load_pdf_text(pdf_path)
     clean_text = clean_path.read_text(encoding="utf-8", errors="ignore")
 
-    pdf_mentions = pipeline.extract(pdf_text, allowed)
-    clean_mentions = pipeline.extract(clean_text, allowed)
-
-    if not args.keep_order:
-        pdf_mentions = dedupe(pdf_mentions)
-        clean_mentions = dedupe(clean_mentions)
+    pdf_mentions = collect_mentions(pdf_text, allowed, deduplicate=not args.keep_order)
+    clean_mentions = collect_mentions(clean_text, allowed, deduplicate=not args.keep_order)
 
     pdf_missing, clean_missing = build_summary(pdf_mentions, clean_mentions)
     report = format_report(pdf_missing, clean_missing)

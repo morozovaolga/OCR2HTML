@@ -66,6 +66,11 @@ macOS/Linux:
   - --epub-template PATH — путь к шаблону EPUB (например, sample.epub). Если указан, генерирует EPUB из лучшего доступного HTML/JSON. По умолчанию ищет sample.epub в корне проекта (перед генерацией должен существовать `final_clean.txt`, иначе EPUB пропускается)
   - --epub-max-chapter-size KB — максимальный размер главы (в килобайтах) при генерации EPUB (по умолчанию 50 KB); если в тексте нет явно отмеченных заголовков, главы разбиваются по размеру
   - --epub-author AUTHOR — имя автора для генерации обложки EPUB
+  - --natasha-types TYPES — типы сущностей для Natasha (`PER`, `LOC`, `ORG`). По умолчанию `PER,LOC`.
+  - --natasha-check — запустить сравнение именованных сущностей между PDF и `final_clean.txt` с помощью Natasha
+  - --natasha-out FILE — имя файла отчёта (по умолчанию `natasha_diff.txt`, создаётся в папке вывода)
+  - --natasha-sync — гармонизировать `final_clean.txt` с упоминаниями из PDF (замены PER/LOC/ORG)
+  - --natasha-sync-report FILE — отчёт о применённых заменах (по умолчанию `natasha_sync.txt` в папке вывода)
 - --natasha-check — запустить сравнение именованных сущностей между PDF и `final_clean.txt` с помощью Natasha (PER/LOC/ORG)
 - --natasha-out FILE — имя файла отчёта (по умолчанию `natasha_diff.txt`, создаётся в выходной папке)
 
@@ -152,7 +157,18 @@ Natasha (NER) для более насыщенной проверки:
 python natasha_entity_check.py --pdf sn.pdf --clean out/final_clean.txt --out out/sn_natasha.txt --types PER,LOC,ORG
 ```
 Утилита извлекает сущности типов `PER`, `LOC`, `ORG` через Natasha и сравнивает их нормализованные формы между PDF и `final_clean.txt`. Отчёт сохраняет только те сущности, которые есть в одном файле и отсутствуют в другом. Параметр `--types` позволяет убрать или добавить конкретные типы сущностей (например, оставить только `PER` и `LOC`).
-Или выполнить прямо внутри `pipeline.py`: `--natasha-check` запускает ту же проверку после LanguageTool, а `--natasha-out` задаёт имя отчёта (по умолчанию `natasha_diff.txt`).
+
+Гармонизация финального текста по Наташе:
+```bash
+python natasha_sync.py --pdf sn.pdf --clean out/final_clean.txt --report out/sn_natasha_sync.txt --types PER,LOC,ORG
+```
+Скрипт заменяет в `final_clean.txt` все вариации сущностей (PER/LOC/ORG), которые встретились и в PDF, но были приведены к иным формам после модернизации. После этого EPUB можно заново построить, и имена/географии точно совпадают с оригиналом.
+
+Или добавьте автоматический шаг в `pipeline.py`:
+```bash
+python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natasha.txt --natasha-sync-report out/sn_natasha_sync.txt
+```
+Флаги `--natasha-types`, `--natasha-check`, `--natasha-sync` и связанные отчёты управляют последовательным запуском проверки и гармонизации после LanguageTool.
 
 Особенности:
 - Автоматическая генерация обложки с градиентом из 3 гармоничных цветов
@@ -176,6 +192,7 @@ python natasha_entity_check.py --pdf sn.pdf --clean out/final_clean.txt --out ou
 - generate_epub.py — генерация EPUB из HTML/JSON с автоматической обложкой
 - compare_pdf_clean_names.py — дополнительная проверка имен собственных между PDF и final_clean.txt
 - natasha_entity_check.py — проверка именованных сущностей (PER/LOC/ORG) через Natasha
+- natasha_sync.py — гармонизация `final_clean.txt` по сущностям из PDF
  - oldspelling.py — правила дореформенной орфографии (regex‑замены)
  - requirements.txt — зависимости (PyMuPDF, python-dotenv, Pillow)
  - .gitignore — исключения

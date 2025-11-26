@@ -27,8 +27,11 @@ def main():
     ap.add_argument("--epub-template", nargs='?', const="sample.epub", help="Path to EPUB template file (default: sample.epub in project root). If provided, generates EPUB from the best available HTML/JSON")
     ap.add_argument("--epub-author", default="", help="Author name for EPUB cover generation")
     ap.add_argument("--epub-max-chapter-size", type=int, default=50, help="Maximum chapter size in KB for EPUB sections (default: 50)")
+    ap.add_argument("--natasha-types", default="PER,LOC", help="Entity types for Natasha checks (PER, LOC, ORG)")
     ap.add_argument("--natasha-check", action="store_true", help="Compare named entities between PDF and final_clean.txt using Natasha")
     ap.add_argument("--natasha-out", default="natasha_diff.txt", help="Output file for Natasha entity comparison")
+    ap.add_argument("--natasha-sync", action="store_true", help="Harmonize final_clean.txt with PDF entity forms via Natasha")
+    ap.add_argument("--natasha-sync-report", default="natasha_sync.txt", help="Report written by Natasha harmonization")
     args = ap.parse_args()
 
     here = Path(__file__).parent
@@ -135,6 +138,21 @@ def main():
                 "--pdf", args.pdf,
                 "--clean", str(final_clean_txt),
                 "--out", str(outdir / args.natasha_out),
+                "--types", args.natasha_types,
+            ])
+
+    if args.natasha_sync:
+        final_clean_txt = outdir / "final_clean.txt"
+        if not final_clean_txt.exists():
+            print(f"Warning: {final_clean_txt.name} не найден — Natasha-грамминг пропущен.")
+        else:
+            run([
+                sys.executable,
+                str(here / "natasha_sync.py"),
+                "--pdf", args.pdf,
+                "--clean", str(final_clean_txt),
+                "--types", args.natasha_types,
+                "--report", str(outdir / args.natasha_sync_report),
             ])
 
     print("\nDone.")
