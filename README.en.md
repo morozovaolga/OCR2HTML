@@ -177,6 +177,13 @@ python compare_pdf_clean_names.py --pdf book.pdf --clean out/final_clean.txt --m
 ```
 The script lists mismatches between title-like phrases extracted from the PDF and the cleaned text to highlight typos before EPUB finalization.
 
+Natasha (NER) for richer entity comparison:
+```bash
+python natasha_entity_check.py --pdf sn.pdf --clean out/final_clean.txt --out out/sn_natasha.txt --types PER,LOC,ORG
+```
+This utility extracts named entities (persons, locations, organizations) with Natasha and compares their normalized forms between the PDF and `final_clean.txt`, reporting only entities that appear in one source but not the other. Use `--types PER,LOC` to include or exclude classes.
+You can also enable the same check inside `pipeline.py` with `--natasha-check`, and control the output file with `--natasha-out` (`natasha_diff.txt` by default).
+
 Features:
 - Automatic cover generation with gradient from 3 harmonious colors
 - Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
@@ -184,7 +191,6 @@ Features:
 - Updated table of contents (toc.ncx) with new sections
 - Supports both HTML (final_*.html) and JSON (structured*.json) as source
 
-- compare_pdf_clean_names.py — optional name validation between modern PDF and final_clean.txt
 Repository layout
 - pipeline.py                 — orchestrator
 - extract_structured_text.py  — structure extraction
@@ -197,6 +203,7 @@ Repository layout
 - generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
 - run_ollama_background.ps1    — PowerShell script for background Ollama processing
 - run_ollama_background.bat    — BAT script for background Ollama processing
+- natasha_entity_check.py      — optional named-entity comparison (PER/LOC/ORG) between PDF and final_clean.txt via Natasha
 - oldspelling.py              — pre‑reform spelling rules (regex map)
 - requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
 

@@ -72,6 +72,8 @@ macOS/Linux:
   - --epub-template PATH — путь к шаблону EPUB (например, sample.epub). Если указан, генерирует EPUB из лучшего доступного HTML/JSON. По умолчанию ищет sample.epub в корне проекта (перед генерацией должен существовать `final_clean.txt`, иначе EPUB пропускается)
   - --epub-max-chapter-size KB — максимальный размер главы (в килобайтах) при генерации EPUB (по умолчанию 50 KB); если в тексте нет явно отмеченных заголовков, главы разбиваются по размеру
   - --epub-author AUTHOR — имя автора для генерации обложки EPUB
+- --natasha-check — запустить сравнение именованных сущностей между PDF и `final_clean.txt` с помощью Natasha (PER/LOC/ORG)
+- --natasha-out FILE — имя файла отчёта (по умолчанию `natasha_diff.txt`, создаётся в выходной папке)
 
 Как работает LanguageTool и Yandex.Speller:
 LanguageTool — это облачный сервис проверки грамматики и орфографии. В этом проекте используется только для безопасных автоматических исправлений, без сложной стилистики и грамматики.
@@ -199,6 +201,13 @@ python compare_pdf_clean_names.py --pdf makar/makar.pdf --clean out/final_clean.
 ```
 Скрипт ищет фразы, начинающиеся с заглавных слов (например, `Глава I`, `Часть IV`, `Имя`) в PDF и `final_clean.txt` и записывает несовпадения для ручной проверки.
 
+Natasha (NER) для более насыщенной проверки:
+```bash
+python natasha_entity_check.py --pdf sn.pdf --clean out/final_clean.txt --out out/sn_natasha.txt --types PER,LOC,ORG
+```
+Утилита извлекает сущности типов `PER`, `LOC`, `ORG` через Natasha и сравнивает их нормализованные формы между PDF и `final_clean.txt`. Отчёт сохраняет только те сущности, которые есть в одном файле и отсутствуют в другом. Параметр `--types` позволяет убрать или добавить конкретные типы сущностей (например, оставить только `PER` и `LOC`).
+Или выполнить прямо внутри `pipeline.py`: `--natasha-check` запускает ту же проверку после LanguageTool, а `--natasha-out` задаёт имя отчёта (по умолчанию `natasha_diff.txt`).
+
 Особенности:
 - Автоматическая генерация обложки с градиентом из 3 гармоничных цветов
 - Разделы нумеруются начиная с 1 (Section0001.xhtml, Section0002.xhtml и т.д.)
@@ -208,6 +217,7 @@ python compare_pdf_clean_names.py --pdf makar/makar.pdf --clean out/final_clean.
 
 Сравнение PDF ↔ clean_txt (опционально)
  - compare_pdf_clean_names.py — сравнивает именованные фразы между PDF (современная орфография) и `final_clean.txt`, показывает расхождения.
+ - natasha_entity_check.py — извлекает сущности типа PER/LOC/ORG через Natasha и сравнивает их между PDF и `final_clean.txt`, отчёт сохраняет `natasha_diff.txt`
 
 Структура папки
  - pipeline.py — единая точка входа (оркестратор)
@@ -219,7 +229,8 @@ python compare_pdf_clean_names.py --pdf makar/makar.pdf --clean out/final_clean.
  - gigachat_check.py — исправление грамматики и ошибок OCR через GigaChat API
  - ollama_check.py — исправление грамматики и ошибок OCR через Ollama
  - generate_epub.py — генерация EPUB из HTML/JSON с автоматической обложкой
- - compare_pdf_clean_names.py — дополнительная проверка имен собственных между PDF и final_clean.txt
+- compare_pdf_clean_names.py — дополнительная проверка имен собственных между PDF и final_clean.txt
+- natasha_entity_check.py — проверка именованных сущностей (PER/LOC/ORG) через Natasha
  - oldspelling.py — правила дореформенной орфографии (regex‑замены)
  - requirements.txt — зависимости (PyMuPDF, python-dotenv, Pillow)
  - .gitignore — исключения

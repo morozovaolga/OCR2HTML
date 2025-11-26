@@ -29,6 +29,8 @@ def main():
     ap.add_argument("--epub-template", nargs='?', const="sample.epub", help="Path to EPUB template file (default: sample.epub in project root). If provided, generates EPUB from the best available HTML/JSON")
     ap.add_argument("--epub-author", default="", help="Author name for EPUB cover generation")
     ap.add_argument("--epub-max-chapter-size", type=int, default=50, help="Maximum chapter size in KB for EPUB sections (default: 50)")
+    ap.add_argument("--natasha-check", action="store_true", help="Compare named entities between PDF and final_clean.txt using Natasha")
+    ap.add_argument("--natasha-out", default="natasha_diff.txt", help="Output file for Natasha entity comparison")
     args = ap.parse_args()
 
     here = Path(__file__).parent
@@ -132,6 +134,19 @@ def main():
                 run(epub_cmd)
             else:
                 print("Warning: No suitable source file found for EPUB generation")
+
+    if args.natasha_check:
+        final_clean_txt = outdir / "final_clean.txt"
+        if not final_clean_txt.exists():
+            print(f"Warning: {final_clean_txt.name} не найден — Natasha-сравнение пропущено.")
+        else:
+            run([
+                sys.executable,
+                str(here / "natasha_entity_check.py"),
+                "--pdf", args.pdf,
+                "--clean", str(final_clean_txt),
+                "--out", str(outdir / args.natasha_out),
+            ])
 
     print("\nDone.")
     print("Open:")
