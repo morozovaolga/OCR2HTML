@@ -147,7 +147,10 @@ Context check:
 ```bash
 python context_checker.py --in out/final_clean.txt --out out/context_warnings.txt --pronouns он,она,оно,они
 ```
-This script uses `pymorphy2` to look for pronoun + following-word pairs where the second word is not parsed as a verb or infinitive and reports the surrounding sentence. You can override the pronoun set via `--context-pronouns`.
+This script uses `pymorphy2` to detect two patterns:
+- pronoun + following word (warns when the second token is not parsed as a verb/infinitive),
+- adjacent words that should be joined (if `умер шей` produces the valid form `умершей`, it recommends the glued variant).
+You can override the pronoun set via `--context-pronouns`.
 
 Enable the context step inside `pipeline.py`:
 ```bash

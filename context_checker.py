@@ -52,6 +52,34 @@ def analyze_text(text: str, pronouns: set[str], morph: MorphAnalyzer) -> list[st
                 warnings.append(
                     f"Пара {prev_word} + {curr_word} в предложении «{sentence.strip()}» ({snippet}) выглядит неправильно: {curr_word} не распознан как глагол."
                 )
+        warnings.extend(check_split_words(tokens, morph, sentence.strip()))
+    return warnings
+
+
+def check_split_words(tokens: list[str], morph: MorphAnalyzer, sentence: str) -> list[str]:
+    warnings: list[str] = []
+    for idx in range(len(tokens) - 1):
+        first, second = tokens[idx], tokens[idx + 1]
+        if len(first) + len(second) < 5:
+            continue
+        combined = first + second
+        combined = re.sub(r"[^А-Яа-яёЁ]", "", combined)
+        if not combined:
+            continue
+        combined_parses = [p for p in morph.parse(combined) if p.tag.POS in {"NOUN", "ADJF", "ADJS", "PRTF", "PRTS", "VERB"}]
+        if not combined_parses:
+            continue
+        single_parses = morph.parse(first)
+        second_parses = morph.parse(second)
+        combined_norm = combined_parses[0].normal_form
+        if any(p.normal_form == combined_norm for p in single_parses):
+            continue
+        if any(p.normal_form == combined_norm for p in second_parses):
+            continue
+        snippet = " ".join(tokens[max(0, idx - 1): min(len(tokens), idx + 3)])
+        warnings.append(
+            f"Похоже, что «{first} {second}» в «{snippet}» должно быть «{combined_parses[0].word}» (норма: {combined_norm}). Рассмотрите склейку."
+        )
     return warnings
 
 

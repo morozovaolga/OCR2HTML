@@ -21,6 +21,7 @@ def run(bk):
                 html = text_type(html, 'utf-8') #перевод формата в 'utf-8'
             html_orig = html #копирование html_orig
 
+            html = re.sub(r'([А-Яа-яёЁ]+)ъ\b', r'\1', html)
             html = re.sub('ъ', '', html)
             html = re.sub('ъ.', '.', html)
             html = re.sub('ъ,', ',', html)
