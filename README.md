@@ -71,6 +71,9 @@ macOS/Linux:
   - --natasha-out FILE — имя файла отчёта (по умолчанию `natasha_diff.txt`, создаётся в папке вывода)
   - --natasha-sync — гармонизировать `final_clean.txt` с упоминаниями из PDF (замены PER/LOC/ORG)
   - --natasha-sync-report FILE — отчёт о применённых заменах (по умолчанию `natasha_sync.txt` в папке вывода)
+  - --context-check — контекстная проверка (`он шелк`, несовпадения местоимение+глагол) через pymorphy2
+  - --context-out FILE — файл с предупреждениями контекстной проверки (по умолчанию `context_warnings.txt`)
+  - --context-pronouns LIST — через запятую разделённый список местоимений (по умолчанию `он,она,оно,они,мы,вы,ты`)
 - --natasha-check — запустить сравнение именованных сущностей между PDF и `final_clean.txt` с помощью Natasha (PER/LOC/ORG)
 - --natasha-out FILE — имя файла отчёта (по умолчанию `natasha_diff.txt`, создаётся в выходной папке)
 
@@ -170,6 +173,20 @@ python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natas
 ```
 Флаги `--natasha-types`, `--natasha-check`, `--natasha-sync` и связанные отчёты управляют последовательным запуском проверки и гармонизации после LanguageTool.
 
+Контекстная проверка:
+```bash
+python context_checker.py --in out/final_clean.txt --out out/context_warnings.txt --pronouns он,она,оно,они
+```
+Скрипт использует `pymorphy2` и проверяет пары «местоимение + следующее слово», если второе слово не распознаётся как глагол/инфинитив, появляется предупреждение с предложением. Можно настраивать список местоимений через `--context-pronouns`.
+
+Или включите контекстную проверку в `pipeline.py`:
+```bash
+python pipeline.py ... --context-check --context-out out/context_warnings.txt --natasha-check --natasha-sync
+```
+`--context-check` запускает `context_checker.py` сразу после LanguageTool, ещё до пост‑очистки и генерации EPUB.
+
+Дополнительно: `pyspellchecker` можно использовать как новый этап после LT (отдельным скриптом) — он хорошо ловит редкие слова и очевидные опечатки, но не заменяет морфологический разбор.
+
 Особенности:
 - Автоматическая генерация обложки с градиентом из 3 гармоничных цветов
 - Разделы нумеруются начиная с 1 (Section0001.xhtml, Section0002.xhtml и т.д.)
@@ -193,6 +210,7 @@ python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natas
 - compare_pdf_clean_names.py — дополнительная проверка имен собственных между PDF и final_clean.txt
 - natasha_entity_check.py — проверка именованных сущностей (PER/LOC/ORG) через Natasha
 - natasha_sync.py — гармонизация `final_clean.txt` по сущностям из PDF
+- context_checker.py — контекстная проверка местоимение+глагол
  - oldspelling.py — правила дореформенной орфографии (regex‑замены)
  - requirements.txt — зависимости (PyMuPDF, python-dotenv, Pillow)
  - .gitignore — исключения

@@ -32,6 +32,9 @@ def main():
     ap.add_argument("--natasha-out", default="natasha_diff.txt", help="Output file for Natasha entity comparison")
     ap.add_argument("--natasha-sync", action="store_true", help="Harmonize final_clean.txt with PDF entity forms via Natasha")
     ap.add_argument("--natasha-sync-report", default="natasha_sync.txt", help="Report written by Natasha harmonization")
+    ap.add_argument("--context-check", action="store_true", help="Run context_checker on final_clean.txt after LanguageTool")
+    ap.add_argument("--context-out", default="context_warnings.txt", help="Output file for context check warnings")
+    ap.add_argument("--context-pronouns", default="он,она,оно,они,мы,вы,ты", help="Comma-separated pronouns to look for in context check")
     args = ap.parse_args()
 
     here = Path(__file__).parent
@@ -66,6 +69,19 @@ def main():
             lt_cmd.append("--with-yandex")
             lt_cmd.extend(["--yandex-lang", args.yandex_lang])
         run(lt_cmd)
+
+    if args.context_check:
+        final_clean_txt = outdir / "final_clean.txt"
+        if not final_clean_txt.exists():
+            print(f"Warning: {final_clean_txt.name} не найден — контекстная проверка пропущена.")
+        else:
+            run([
+                sys.executable,
+                str(here / "context_checker.py"),
+                "--in", str(final_clean_txt),
+                "--out", str(outdir / args.context_out),
+                "--pronouns", args.context_pronouns,
+            ])
 
     # 5) (optional) Post-cleanup: write final_better.* from final_clean.txt if present, else final.txt
     if args.post_clean:

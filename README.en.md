@@ -143,6 +143,20 @@ python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natas
 ```
 The flags `--natasha-types`, `--natasha-check`, and `--natasha-sync` sequentially run the Natasha comparison and harmonization before EPUB generation.
 
+Context check:
+```bash
+python context_checker.py --in out/final_clean.txt --out out/context_warnings.txt --pronouns он,она,оно,они
+```
+This script uses `pymorphy2` to look for pronoun + following-word pairs where the second word is not parsed as a verb or infinitive and reports the surrounding sentence. You can override the pronoun set via `--context-pronouns`.
+
+Enable the context step inside `pipeline.py`:
+```bash
+python pipeline.py ... --context-check --context-out out/context_warnings.txt --natasha-check --natasha-sync
+```
+`--context-check` runs `context_checker.py` immediately after LanguageTool so the EPUB is built from text that passed the pronoun+verb sanity check.
+
+`pyspellchecker` can be added as another lightweight pass to catch rare typos that LanguageTool misses.
+
 Features:
 - Automatic cover generation with gradient from 3 harmonious colors
 - Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
@@ -161,6 +175,7 @@ Repository layout
 - generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
 - natasha_entity_check.py      — optional named-entity comparison (PER/LOC/ORG) between PDF and final_clean.txt via Natasha
 - natasha_sync.py              — harmonize `final_clean.txt` with PDF entity forms via Natasha
+- context_checker.py           — context-sensitive pronoun+verb check
 - oldspelling.py              — pre‑reform spelling rules (regex map)
 - requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
 
