@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Iterable
 
 if not hasattr(inspect, "getargspec"):
-    inspect.getargspec = inspect.getfullargspec  # type: ignore[attr-defined]
+    def _getargspec(func):
+        spec = inspect.getfullargspec(func)
+        return spec.args, spec.varargs, spec.varkw, spec.defaults
+    inspect.getargspec = _getargspec  # type: ignore[attr-defined]
 
 from pymorphy2 import MorphAnalyzer
 
