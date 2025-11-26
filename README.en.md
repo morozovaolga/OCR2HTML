@@ -38,7 +38,6 @@ Outputs (in out/)
 Optional (if enabled):
 - final_clean.txt / final_clean.html — after safe LanguageTool (cloud) fixes
 - final_better.txt / final_better.html — after post-cleanup (join spaced letters, Latin→Cyrillic)
-- final_gigachat.txt / final_gigachat.html — after GigaChat API correction (grammar and OCR errors)
 - Book_Title.epub — EPUB file with automatically generated cover (if --epub-template is specified)
 
 How it works
@@ -47,8 +46,6 @@ How it works
 3) modernize_structured.py — fixes linebreaks/dashes/ellipsis/spaces, merges paragraph fragments, modernizes letters, writes final HTML/TXT and flags.
 4) (optional) lt_cloud.py — applies safe LanguageTool (cloud) spelling fixes.
 5) (optional) post_cleanup.py — joins spaced letters, fixes intraword gaps, converts Latin→Cyrillic.
-6) (optional) gigachat_check.py — AI-powered grammar and OCR error correction.
-
 How LanguageTool and Yandex.Speller work together:
 LanguageTool is a cloud-based grammar and spelling checker. This project uses it only for safe automatic corrections, without changing style or grammar.
 
@@ -71,29 +68,6 @@ What it does NOT do:
 
 Result: final_clean.txt and final_clean.html files with applied safe corrections.
 
-Setting up GigaChat API (experimental, may not work):
-⚠️ WARNING: Connecting to GigaChat API may require installing NUC (National Certification Center) certificates and additional setup. It is recommended to use Ollama instead of GigaChat.
-
-If you still want to try:
-1. Register at https://developers.sber.ru/ and get Client ID and Client Secret
-2. Install dependencies (if not already installed):
-   pip install python-dotenv
-3. Install NUC certificates according to instructions at https://developers.sber.ru/docs/ru/gigachat/api/overview
-4. Create a .env file in the project root:
-   - Open .env and fill in your values:
-     GIGACHAT_CLIENT_ID=your_client_id
-     GIGACHAT_CLIENT_SECRET=your_client_secret
-     # Or use a ready-made Authorization Key:
-     GIGACHAT_AUTH_KEY=your_authorization_key_in_base64
-   
-   Alternative: set environment variables in the system:
-   - Windows PowerShell:
-     $env:GIGACHAT_CLIENT_ID="your_client_id"
-     $env:GIGACHAT_CLIENT_SECRET="your_client_secret"
-   - Linux/macOS:
-     export GIGACHAT_CLIENT_ID="your_client_id"
-     export GIGACHAT_CLIENT_SECRET="your_client_secret"
-
 EPUB Generation (--epub-template):
 The program can automatically create EPUB files based on an EPUB template and processed text.
 
@@ -102,7 +76,7 @@ Requirements:
 2. Pillow installed: pip install Pillow
 
 What it does:
-1. Uses the best available text source (priority: final_gigachat.html > final_better.html > final_clean.txt > final_clean.html > final.txt > structured_rules.json > structured.json)
+1. Uses the best available text source (priority: final_better.html > final_clean.txt > final_clean.html > final.txt > structured_rules.json > structured.json)
 2. When reading `.txt` (e.g., `final_clean.txt`), paragraphs that start with `Часть`, `Глава`, `Раздел`, `Книга` (with a number), `***`, or a Roman numeral are treated as headings so the text can still be split into chapters even without markup
 3. Splits text into sections — by headings when present, otherwise by size (controlled by `--max-chapter-size`, defaults to ~50 KB) — so no paragraph disappears and you don’t end up with a single enormous file
 4. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
@@ -174,7 +148,6 @@ Repository layout
 - modernize_structured.py     — modernization and final rendering
 - lt_cloud.py                  — LanguageTool (cloud) safe fixes
 - post_cleanup.py             — post-cleanup: join spaced letters, fix gaps, Latin→Cyrillic
-- gigachat_check.py           — GigaChat API integration (experimental)
 - generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
 - natasha_entity_check.py      — optional named-entity comparison (PER/LOC/ORG) between PDF and final_clean.txt via Natasha
 - natasha_sync.py              — harmonize `final_clean.txt` with PDF entity forms via Natasha
