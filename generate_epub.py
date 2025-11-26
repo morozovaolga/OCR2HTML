@@ -525,7 +525,15 @@ def update_content_opf(opf_content: str, section_files: list, title: str, author
     return xml_str
 
 
-def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: str, author: str = "", max_chapter_size_kb: int = 50):
+def generate_epub(
+    template_epub: Path,
+    blocks: list,
+    output_epub: Path,
+    title: str,
+    author: str = "",
+    cover_prompt: str = "",
+    max_chapter_size_kb: int = 50,
+):
     """Генерировать EPUB на основе шаблона и блоков текста"""
     
     # Разбиваем на разделы
@@ -548,7 +556,7 @@ def generate_epub(template_epub: Path, blocks: list, output_epub: Path, title: s
         has_cover_image = False
         if HAS_PIL:
             try:
-                cover_image_data = generate_cover_image(title, author)
+                cover_image_data = generate_cover_image(title, author, prompt=cover_prompt)
                 cover_image_path = images_path / "cover.jpg"
                 cover_image_path.write_bytes(cover_image_data)
                 has_cover_image = True
