@@ -27,6 +27,10 @@ def main():
     ap.add_argument("--epub-template", nargs='?', const="sample.epub", help="Path to EPUB template file (default: sample.epub in project root). If provided, generates EPUB from the best available HTML/JSON")
     ap.add_argument("--epub-author", default="", help="Author name for EPUB cover generation")
     ap.add_argument("--epub-max-chapter-size", type=int, default=50, help="Maximum chapter size in KB for EPUB sections (default: 50)")
+    ap.add_argument("--cover-palette", default="приглушённая", help="Желаемая цветовая гамма для обложки")
+    ap.add_argument("--cover-era", default="поздний XIX век", help="Эпоха/ассоциация для дизайна обложки")
+    ap.add_argument("--cover-mood", default="теплая ностальгия", help="Настроение, которое должна передать обложка")
+    ap.add_argument("--cover-decoration", default="геометрические паттерны", help="Тип декоративных элементов на обложке")
     ap.add_argument("--natasha-types", default="PER,LOC", help="Entity types for Natasha checks (PER, LOC, ORG)")
     ap.add_argument("--natasha-check", action="store_true", help="Compare named entities between PDF and final_clean.txt using Natasha")
     ap.add_argument("--natasha-out", default="natasha_diff.txt", help="Output file for Natasha entity comparison")
@@ -131,11 +135,22 @@ def main():
             
             if source_file and source_file.exists():
                 output_epub = outdir / f"{args.title.replace(' ', '_')}.epub"
-                epub_cmd = [sys.executable, str(here / "generate_epub.py"), 
-                           "--template", str(template_epub),
-                           "--in", str(source_file),
-                           "--out", str(output_epub),
-                           "--title", args.title]
+                cover_prompt = "; ".join(filter(None, [
+                    f"palette: {args.cover_palette}",
+                    f"era: {args.cover_era}",
+                    f"mood: {args.cover_mood}",
+                    f"decoration: {args.cover_decoration}",
+                ]))
+
+                epub_cmd = [
+                    sys.executable,
+                    str(here / "generate_epub.py"),
+                    "--template", str(template_epub),
+                    "--in", str(source_file),
+                    "--out", str(output_epub),
+                    "--title", args.title,
+                    "--cover-prompt", cover_prompt,
+                ]
                 if args.epub_author:
                     epub_cmd.extend(["--author", args.epub_author])
                 epub_cmd.extend(["--max-chapter-size", str(args.epub_max_chapter_size)])

@@ -184,7 +184,7 @@ def split_into_chapters(blocks, max_size_kb=50):
     return chapters
 
 
-def generate_cover_image(title: str, author: str = "", width: int = 1200, height: int = 1600) -> bytes:
+def generate_cover_image(title: str, author: str = "", prompt: str = "", width: int = 1200, height: int = 1600) -> bytes:
     """Генерировать изображение обложки с названием и автором"""
     if not HAS_PIL:
         raise ImportError("Pillow (PIL) не установлен. Установите: pip install Pillow")
@@ -296,6 +296,7 @@ def generate_cover_image(title: str, author: str = "", width: int = 1200, height
     if current_line:
         title_lines.append(current_line)
     
+    draw = ImageDraw.Draw(img)
     # Рисуем заголовок
     title_y = height // 3
     line_height = 90
@@ -322,6 +323,15 @@ def generate_cover_image(title: str, author: str = "", width: int = 1200, height
         # Основной текст
         draw.text((author_x, author_y), author, font=author_font, fill=(200, 200, 200))
     
+    prompt = prompt.strip()
+    if prompt:
+        prompt_font = author_font
+        prompt_y = height - 200
+        prompt_text = f"Prompt: {prompt}"
+        prompt_bbox = draw.textbbox((0, 0), prompt_text, font=prompt_font)
+        prompt_width = prompt_bbox[2] - prompt_bbox[0]
+        draw.text(((width - prompt_width) // 2, prompt_y), prompt_text, font=prompt_font, fill=(230, 230, 230))
+
     # Сохраняем в байты (JPEG)
     from io import BytesIO
     img_bytes = BytesIO()
@@ -681,6 +691,7 @@ def main():
     ap.add_argument("--out", required=True, help="Выходной EPUB файл")
     ap.add_argument("--title", required=True, help="Заголовок книги")
     ap.add_argument("--author", default="", help="Автор книги (для обложки)")
+    ap.add_argument("--cover-prompt", default="", help="Дополнительное описание желаемой обложки (palette/era/mood/decor)")
     ap.add_argument("--max-chapter-size", type=int, default=50, help="Максимальный размер главы в KB (по умолчанию 50)")
     args = ap.parse_args()
     
@@ -717,7 +728,15 @@ def main():
     print(f"Загружено {len(blocks)} блоков")
     
     # Генерируем EPUB
-    generate_epub(template_epub, blocks, output_epub, args.title, args.author, max_chapter_size_kb=args.max_chapter_size)
+    generate_epub(
+        template_epub,
+        blocks,
+        output_epub,
+        args.title,
+        args.author,
+        cover_prompt=args.cover_prompt,
+        max_chapter_size_kb=args.max_chapter_size,
+    )
     
     return 0
 

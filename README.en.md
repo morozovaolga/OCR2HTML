@@ -84,6 +84,8 @@ What it does:
 6. Creates EPUB file in out/ folder (skipped if `final_clean.txt` is missing)
 7. `generate_epub.py` can read plain `.txt` files (e.g., `final_clean.txt` from LanguageTool), so EPUB always uses the latest corrected text
 
+You can also influence the automatically generated cover by passing `--cover-palette`, `--cover-era`, `--cover-mood`, and `--cover-decoration` through `pipeline.py`; their values are merged into a prompt that appears on the cover and helps choose the gradient, pattern layers, and symbolic style that match the requested palette, era, mood, and decorations.
+
 Example usage:
 ```bash
 # Full processing with EPUB generation
