@@ -102,7 +102,7 @@ def page_blocks_with_roles(page, two_columns=False):
         blocks = left_blocks + right_blocks
     else:
         # Default: sort by reading order (top, then left)
-        blocks.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
+    blocks.sort(key=lambda x: (x["bbox"][1], x["bbox"][0]))
     return blocks
 
 
