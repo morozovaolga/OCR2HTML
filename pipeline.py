@@ -23,8 +23,6 @@ def main():
     ap.add_argument("--chunk-size", type=int, default=6000, help="Maximum characters per LanguageTool/Yandex request (default: 6000)")
     ap.add_argument("--post-clean", action="store_true", help="Run post-cleanup: join spaced letters, fix intraword gaps, Latin→Cyrillic")
     ap.add_argument("--gigachat", action="store_true", help="Run GigaChat API grammar and OCR error correction (requires GIGACHAT_CLIENT_ID and GIGACHAT_CLIENT_SECRET env vars)")
-    ap.add_argument("--ollama", action="store_true", help="Run Ollama (local) grammar and OCR error correction (requires Ollama to be running)")
-    ap.add_argument("--ollama-model", default="mistral:latest", help="Ollama model to use (default: mistral:latest)")
     ap.add_argument("--two-columns", action="store_true", help="Process pages with two columns: left column first, then right column")
     ap.add_argument("--epub-template", nargs='?', const="sample.epub", help="Path to EPUB template file (default: sample.epub in project root). If provided, generates EPUB from the best available HTML/JSON")
     ap.add_argument("--epub-author", default="", help="Author name for EPUB cover generation")
@@ -78,14 +76,6 @@ def main():
                               "final.txt")
         run([sys.executable, str(here / "gigachat_check.py"), "--in", str(source_txt), "--outdir", str(outdir), "--title", args.title + " (GigaChat)"])
 
-    # 7) (optional) Ollama (local): write final_ollama.* from best available source
-    if args.ollama:
-        source_txt = outdir / ("final_better.txt" if (outdir / "final_better.txt").exists() else 
-                              "final_clean.txt" if (outdir / "final_clean.txt").exists() else 
-                              "final.txt")
-        ollama_cmd = [sys.executable, str(here / "ollama_check.py"), "--in", str(source_txt), "--outdir", str(outdir), "--title", args.title + " (Ollama)", "--model", args.ollama_model]
-        run(ollama_cmd)
-
     # 8) (optional) Generate EPUB from template
     if args.epub_template:
         final_clean_txt = outdir / "final_clean.txt"
@@ -103,10 +93,9 @@ def main():
             print(f"Warning: EPUB template not found: {template_epub}")
         else:
             # Определяем лучший источник: HTML или JSON
-            # Приоритет: final_ollama.html > final_gigachat.html > final_better.html > final_clean.html > final.html
+            # Приоритет: final_gigachat.html > final_better.html > final_clean.html > final.html
             # Или structured_rules.json > structured.json
             candidates = [
-                outdir / "final_ollama.html",
                 outdir / "final_gigachat.html",
                 outdir / "final_better.html",
                 outdir / "final_clean.txt",
@@ -154,7 +143,6 @@ def main():
     print(" -", outdir / ("final_clean.html" if (outdir / "final_clean.html").exists() else "final.html"))
     print(" -", outdir / ("final_better.html" if (outdir / "final_better.html").exists() else "final.html"))
     print(" -", outdir / ("final_gigachat.html" if (outdir / "final_gigachat.html").exists() else "final.html"))
-    print(" -", outdir / ("final_ollama.html" if (outdir / "final_ollama.html").exists() else "final.html"))
 
 
 if __name__ == "__main__":

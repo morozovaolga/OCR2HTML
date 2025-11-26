@@ -24,9 +24,6 @@ Quick Start
       - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --with-yandex --post-clean
   - For PDFs with two columns per page (left column first, then right):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --two-columns
-  - With Ollama grammar correction (recommended, local):
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --ollama --ollama-model llama3.1:8b
   - With EPUB generation (requires EPUB template and Pillow; `final_clean.txt` must exist):
     - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --epub-template sample.epub --epub-author "Author Name"
     - (Optional) add `--epub-max-chapter-size KB` to force splitting into sized chapters when there are no clear headings (default 50)
@@ -42,7 +39,6 @@ Optional (if enabled):
 - final_clean.txt / final_clean.html — after safe LanguageTool (cloud) fixes
 - final_better.txt / final_better.html — after post-cleanup (join spaced letters, Latin→Cyrillic)
 - final_gigachat.txt / final_gigachat.html — after GigaChat API correction (grammar and OCR errors)
-- final_ollama.txt / final_ollama.html — after Ollama correction (local, grammar and OCR errors)
 - Book_Title.epub — EPUB file with automatically generated cover (if --epub-template is specified)
 
 How it works
@@ -51,7 +47,7 @@ How it works
 3) modernize_structured.py — fixes linebreaks/dashes/ellipsis/spaces, merges paragraph fragments, modernizes letters, writes final HTML/TXT and flags.
 4) (optional) lt_cloud.py — applies safe LanguageTool (cloud) spelling fixes.
 5) (optional) post_cleanup.py — joins spaced letters, fixes intraword gaps, converts Latin→Cyrillic.
-6) (optional) gigachat_check.py or ollama_check.py — AI-powered grammar and OCR error correction.
+6) (optional) gigachat_check.py — AI-powered grammar and OCR error correction.
 
 How LanguageTool and Yandex.Speller work together:
 LanguageTool is a cloud-based grammar and spelling checker. This project uses it only for safe automatic corrections, without changing style or grammar.
@@ -74,54 +70,6 @@ What it does NOT do:
 - Does not work with contextual errors
 
 Result: final_clean.txt and final_clean.html files with applied safe corrections.
-
-Setting up Ollama (recommended, easiest):
-1. Install Ollama from https://ollama.com/
-2. Pull a model (e.g., mistral:latest):
-   ollama pull mistral:latest
-3. Ensure Ollama is running (usually starts automatically)
-4. Use --ollama flag in pipeline.py
-
-Processing large files with Ollama (background mode):
-Processing large files can take a long time (hours). You can run the process in the background with logging.
-
-Option 1: Use ready-made scripts (recommended)
-- PowerShell: .\run_ollama_background.ps1
-- BAT file: run_ollama_background.bat
-
-These scripts run the process in a separate window with automatic logging to out/ollama_log.txt
-
-Option 2: Manual run with logging
-```bash
-python ollama_check.py --in out/final_better.txt --outdir out --title "Document" --model mistral:latest --log-file out/ollama_log.txt
-```
-
-Option 3: Test mode (process only first chunk)
-```bash
-python ollama_check.py --in out/final_better.txt --outdir out --title "Document" --model mistral:latest --test-first
-```
-After processing the first chunk, the script will ask whether to continue processing the remaining parts.
-
-Checking progress:
-- Open log file: notepad out/ollama_log.txt
-- Or watch in real time (PowerShell):
-  Get-Content out/ollama_log.txt -Wait -Tail 20
-
-⚠️ IMPORTANT: The computer should NOT go to sleep mode!
-If the computer goes to sleep, the process will stop.
-
-To prevent sleep mode (requires administrator rights):
-```powershell
-# Disable sleep mode
-powercfg /change standby-timeout-ac 0
-powercfg /change standby-timeout-dc 0
-
-# Restore (when processing is complete)
-powercfg /change standby-timeout-ac 30
-powercfg /change standby-timeout-dc 15
-```
-
-Or configure in Windows: Control Panel → Power Options → Change plan settings → Turn off display: Never, Put computer to sleep: Never
 
 Setting up GigaChat API (experimental, may not work):
 ⚠️ WARNING: Connecting to GigaChat API may require installing NUC (National Certification Center) certificates and additional setup. It is recommended to use Ollama instead of GigaChat.
@@ -154,7 +102,7 @@ Requirements:
 2. Pillow installed: pip install Pillow
 
 What it does:
-1. Uses the best available text source (priority: final_ollama.html > final_gigachat.html > final_better.html > final_clean.txt > final_clean.html > final.txt > structured_rules.json > structured.json)
+1. Uses the best available text source (priority: final_gigachat.html > final_better.html > final_clean.txt > final_clean.html > final.txt > structured_rules.json > structured.json)
 2. When reading `.txt` (e.g., `final_clean.txt`), paragraphs that start with `Часть`, `Глава`, `Раздел`, `Книга` (with a number), `***`, or a Roman numeral are treated as headings so the text can still be split into chapters even without markup
 3. Splits text into sections — by headings when present, otherwise by size (controlled by `--max-chapter-size`, defaults to ~50 KB) — so no paragraph disappears and you don’t end up with a single enormous file
 4. Automatically generates cover with title and author (random gradient from 3 harmonious colors)
@@ -168,7 +116,7 @@ Example usage:
 python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Author Name"
 
 # Or separately (if you already have processed HTML)
-python generate_epub.py --template sample.epub --in out/final_ollama.html --out out/book.epub --title "Book Title" --author "Author Name"
+python generate_epub.py --template sample.epub --in out/final_better.html --out out/book.epub --title "Book Title" --author "Author Name"
 ```
 
 Optional name-validation step (PDF must already be in modern spelling):
@@ -199,10 +147,7 @@ Repository layout
 - lt_cloud.py                  — LanguageTool (cloud) safe fixes
 - post_cleanup.py             — post-cleanup: join spaced letters, fix gaps, Latin→Cyrillic
 - gigachat_check.py           — GigaChat API integration (experimental)
-- ollama_check.py             — Ollama integration (local AI)
 - generate_epub.py            — EPUB generation from HTML/JSON with automatic cover
-- run_ollama_background.ps1    — PowerShell script for background Ollama processing
-- run_ollama_background.bat    — BAT script for background Ollama processing
 - natasha_entity_check.py      — optional named-entity comparison (PER/LOC/ORG) between PDF and final_clean.txt via Natasha
 - oldspelling.py              — pre‑reform spelling rules (regex map)
 - requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
