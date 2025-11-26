@@ -161,7 +161,7 @@ python pipeline.py ... --context-check --context-out out/context_warnings.txt --
 `pyspellchecker` can be added as another lightweight pass to catch rare typos that LanguageTool misses.
 
 Features:
-- Automatic cover generation with gradient from 3 harmonious colors
+- Automatic cover generation with gradient from 3 harmonious colors and randomized pattern overlays
 - Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
 - Updated title page (Titul.xhtml) with new title and author
 - Updated table of contents (toc.ncx) with new sections

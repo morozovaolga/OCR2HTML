@@ -188,48 +188,78 @@ def generate_cover_image(title: str, author: str = "", width: int = 1200, height
     """Генерировать изображение обложки с названием и автором"""
     if not HAS_PIL:
         raise ImportError("Pillow (PIL) не установлен. Установите: pip install Pillow")
-    
+
     import random
     import colorsys
+    import math
 
     rand = random.Random()
-    colors = []
+    palette = []
     for _ in range(3):
         hue = rand.random()
-        sat = rand.uniform(0.45, 0.75)
-        val = rand.uniform(0.35, 0.8)
+        sat = rand.uniform(0.4, 0.82)
+        val = rand.uniform(0.35, 0.9)
         rgb = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val))
-        colors.append((val, rgb))
+        palette.append((val, rgb))
 
-    # Сортируем цвета по яркости, чтобы сверху был темный оттенок, внизу – светлый
-    colors.sort(key=lambda item: item[0])
-    top_color = colors[0][1]
-    mid_color = colors[1][1]
-    bottom_color = colors[2][1]
-    
-    # Создаем изображение с градиентом
-    img = Image.new('RGB', (width, height), color=top_color)
-    draw = ImageDraw.Draw(img)
-    
-    # Рисуем градиентный фон через 3 цвета
-    mid_point = height // 2  # Середина изображения
-    
+    palette.sort(key=lambda item: item[0])
+    color_a = palette[0][1]
+    color_b = palette[1][1]
+    color_c = palette[2][1]
+
+    orientation = rand.choice(["vertical", "horizontal", "diagonal", "radial"])
+    img = Image.new("RGB", (width, height), color=color_a)
     for y in range(height):
-        if y < mid_point:
-            # Градиент от верхнего цвета к среднему
-            ratio = y / mid_point
-            r = int(top_color[0] + (mid_color[0] - top_color[0]) * ratio)
-            g = int(top_color[1] + (mid_color[1] - top_color[1]) * ratio)
-            b = int(top_color[2] + (mid_color[2] - top_color[2]) * ratio)
+        for x in range(width):
+            if orientation == "vertical":
+                ratio = y / max(1, height - 1)
+            elif orientation == "horizontal":
+                ratio = x / max(1, width - 1)
+            elif orientation == "diagonal":
+                ratio = (x + y) / max(1, width + height - 2)
+            else:  # radial
+                cx = width / 2
+                cy = height / 2
+                dist = math.hypot(x - cx, y - cy)
+                max_dist = math.hypot(cx, cy)
+                ratio = dist / max_dist
+
+            if ratio < 0.5:
+                local_ratio = ratio * 2
+                r = int(color_a[0] + (color_b[0] - color_a[0]) * local_ratio)
+                g = int(color_a[1] + (color_b[1] - color_a[1]) * local_ratio)
+                b = int(color_a[2] + (color_b[2] - color_a[2]) * local_ratio)
+            else:
+                local_ratio = (ratio - 0.5) * 2
+                r = int(color_b[0] + (color_c[0] - color_b[0]) * local_ratio)
+                g = int(color_b[1] + (color_c[1] - color_b[1]) * local_ratio)
+                b = int(color_b[2] + (color_c[2] - color_b[2]) * local_ratio)
+
+            img.putpixel((x, y), (r, g, b))
+
+    # Добавляем полупрозрачные паттерны по поверхности
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    pattern_draw = ImageDraw.Draw(overlay)
+    for _ in range(rand.randint(2, 4)):
+        shape_color = tuple(min(255, c + 50) for c in color_c) + (rand.randint(30, 70),)
+        shape_type = rand.choice(["circle", "stripe"])
+        if shape_type == "circle":
+            radius = rand.randint(width // 5, width // 2)
+            cx = rand.randint(0, width)
+            cy = rand.randint(0, height)
+            pattern_draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=shape_color)
         else:
-            # Градиент от среднего цвета к нижнему
-            ratio = (y - mid_point) / (height - mid_point)
-            r = int(mid_color[0] + (bottom_color[0] - mid_color[0]) * ratio)
-            g = int(mid_color[1] + (bottom_color[1] - mid_color[1]) * ratio)
-            b = int(mid_color[2] + (bottom_color[2] - mid_color[2]) * ratio)
-        
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
-    
+            thickness = rand.randint(30, 70)
+            if rand.choice([True, False]):
+                pattern_draw.rectangle([0, rand.randint(0, height), width, rand.randint(0, height) + thickness],
+                                       fill=shape_color)
+            else:
+                pattern_draw.rectangle([rand.randint(0, width), 0, rand.randint(0, width) + thickness, height],
+                                       fill=shape_color)
+
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+    draw = ImageDraw.Draw(img)
     # Пробуем загрузить шрифт, если не получается - используем стандартный
     try:
         # Пробуем найти системный шрифт
