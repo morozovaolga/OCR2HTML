@@ -17,6 +17,57 @@ except ImportError:
     HAS_PIL = False
 
 
+def _round_to_multiple(value: int, step: int = 64, minimum: int = 64, maximum: int = 1024) -> int:
+    if value <= 0:
+        return minimum
+    adjusted = ((value + step - 1) // step) * step
+    return max(minimum, min(maximum, adjusted))
+
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    raw = value.strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    if len(raw) == 3:
+        raw = "".join(ch * 2 for ch in raw)
+    if len(raw) != 6 or not all(ch in "0123456789abcdefABCDEF" for ch in raw):
+        raise ValueError(f"Неверный HEX-цвет: {value}")
+    return tuple(int(raw[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _coerce_cover_colors(colors, expected: int = 5):
+    if not colors:
+        return None
+    normalized = []
+    for color in colors:
+        if color is None:
+            continue
+        if isinstance(color, tuple):
+            if len(color) != 3:
+                continue
+            normalized.append(tuple(max(0, min(255, int(c))) for c in color))
+        else:
+            try:
+                normalized.append(_hex_to_rgb(str(color)))
+            except ValueError:
+                return None
+        if len(normalized) >= expected:
+            break
+    if len(normalized) < expected:
+        return None
+    return normalized[:expected]
+
+
+def parse_cover_colors_arg(value: str, expected_count: int = 5) -> list[str]:
+    raw = value.strip()
+    if not raw:
+        raise ValueError("Пустая строка цвета")
+    parts = [part.strip() for part in re.split(r"[\s,;]+", raw) if part.strip()]
+    if len(parts) < expected_count:
+        raise ValueError(f"Нужно указать {expected_count} HEX-цветов (stripe, top, title, art-start, art-end)")
+    return parts[:expected_count]
+
+
 def load_blocks_from_json(json_path: Path):
     """Загрузить блоки из JSON файла (structured.json или structured_rules.json)"""
     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -184,8 +235,17 @@ def split_into_chapters(blocks, max_size_kb=50):
     return chapters
 
 
-def generate_cover_image(title: str, author: str = "", prompt: str = "", width: int = 1200, height: int = 1600) -> bytes:
-    """Генерировать изображение обложки с названием и автором"""
+def generate_cover_image(
+    title: str,
+    author: str = "",
+    width: int = 1200,
+    height: int = 1600,
+    cover_colors: list[str] | None = None,
+) -> bytes:
+    """Сгенерировать обложку: верхний блок + полоска и нижняя градиентная зона.
+
+    Если передана палитра, приняты пять HEX-цветов: полоска, верхний блок, заголовок,
+    начало и конец градиента нижней зоны. Авторский текст подбирается автоматически."""
     if not HAS_PIL:
         raise ImportError("Pillow (PIL) не установлен. Установите: pip install Pillow")
 
@@ -194,148 +254,203 @@ def generate_cover_image(title: str, author: str = "", prompt: str = "", width: 
     import math
 
     rand = random.Random()
-    palette = []
-    for _ in range(3):
+
+    def darken(color, ratio=0.35):
+        return tuple(max(0, int(color[i] * ratio)) for i in range(3))
+
+    def random_color():
         hue = rand.random()
-        sat = rand.uniform(0.4, 0.82)
-        val = rand.uniform(0.35, 0.9)
-        rgb = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val))
-        palette.append((val, rgb))
+        sat = rand.uniform(0.35, 0.8)
+        val = rand.uniform(0.4, 0.95)
+        return tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val))
 
-    palette.sort(key=lambda item: item[0])
-    color_a = palette[0][1]
-    color_b = palette[1][1]
-    color_c = palette[2][1]
+    custom_rgb = _coerce_cover_colors(cover_colors)
+    if custom_rgb:
+        stripe_color, top_block_color, title_color_hint, art_start_color, art_end_color = custom_rgb
+        title_color = title_color_hint
+    else:
+        art_start_color = random_color()
+        art_end_color = random_color()
+        top_block_color = random_color()
+        stripe_color = darken(random_color())
+        title_color = None
 
-    orientation = rand.choice(["vertical", "horizontal", "diagonal", "radial"])
-    img = Image.new("RGB", (width, height), color=color_a)
-    for y in range(height):
-        for x in range(width):
-            if orientation == "vertical":
-                ratio = y / max(1, height - 1)
-            elif orientation == "horizontal":
-                ratio = x / max(1, width - 1)
-            elif orientation == "diagonal":
-                ratio = (x + y) / max(1, width + height - 2)
-            else:  # radial
-                cx = width / 2
-                cy = height / 2
-                dist = math.hypot(x - cx, y - cy)
-                max_dist = math.hypot(cx, cy)
-                ratio = dist / max_dist
+    def draw_gradient(target: Image.Image, start_color, end_color, orientation: str):
+        tw, th = target.size
+        for y in range(th):
+            for x in range(tw):
+                if orientation == "vertical":
+                    ratio = y / max(1, th - 1)
+                elif orientation == "horizontal":
+                    ratio = x / max(1, tw - 1)
+                elif orientation == "diagonal":
+                    ratio = (x + y) / max(1, tw + th - 2)
+                else:
+                    cx = tw / 2
+                    cy = th / 2
+                    dist = math.hypot(x - cx, y - cy)
+                    max_dist = math.hypot(cx, cy)
+                    ratio = dist / max(1, max_dist)
+                ratio = max(0.0, min(1.0, ratio))
+                color = tuple(
+                    int(start_color[i] + (end_color[i] - start_color[i]) * ratio)
+                    for i in range(3)
+                )
+                target.putpixel((x, y), color)
 
-            if ratio < 0.5:
-                local_ratio = ratio * 2
-                r = int(color_a[0] + (color_b[0] - color_a[0]) * local_ratio)
-                g = int(color_a[1] + (color_b[1] - color_a[1]) * local_ratio)
-                b = int(color_a[2] + (color_b[2] - color_a[2]) * local_ratio)
-            else:
-                local_ratio = (ratio - 0.5) * 2
-                r = int(color_b[0] + (color_c[0] - color_b[0]) * local_ratio)
-                g = int(color_b[1] + (color_c[1] - color_b[1]) * local_ratio)
-                b = int(color_b[2] + (color_c[2] - color_b[2]) * local_ratio)
+    def brightness(rgb):
+        return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
 
-            img.putpixel((x, y), (r, g, b))
+    def contrast_text_color(bg_color, palette_color):
+        if brightness(bg_color) > 180:
+            return tuple(max(0, palette_color[i] - 110) for i in range(3))
+        return tuple(min(255, palette_color[i] + 110) for i in range(3))
 
-    # Добавляем полупрозрачные паттерны по поверхности
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    pattern_draw = ImageDraw.Draw(overlay)
-    for _ in range(rand.randint(2, 4)):
-        shape_color = tuple(min(255, c + 50) for c in color_c) + (rand.randint(30, 70),)
-        shape_type = rand.choice(["circle", "stripe"])
-        if shape_type == "circle":
-            radius = rand.randint(width // 5, width // 2)
-            cx = rand.randint(0, width)
-            cy = rand.randint(0, height)
-            pattern_draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=shape_color)
-        else:
-            thickness = rand.randint(30, 70)
-            if rand.choice([True, False]):
-                pattern_draw.rectangle([0, rand.randint(0, height), width, rand.randint(0, height) + thickness],
-                                       fill=shape_color)
-            else:
-                pattern_draw.rectangle([rand.randint(0, width), 0, rand.randint(0, width) + thickness, height],
-                                       fill=shape_color)
+    def fix_hanging_prepositions(lines):
+        hangers = {
+            "в",
+            "к",
+            "с",
+            "у",
+            "о",
+            "по",
+            "из",
+            "от",
+            "до",
+            "об",
+            "на",
+            "за",
+            "над",
+            "при",
+            "про",
+        }
+        idx = 0
+        while idx < len(lines) - 1:
+            words = lines[idx].split()
+            if words and words[-1].lower() in hangers:
+                tail = words[-1]
+                preceding = " ".join(words[:-1]).strip()
+                lines[idx + 1] = f"{tail} {lines[idx + 1]}".strip()
+                if preceding:
+                    lines[idx] = preceding
+                    idx += 1
+                else:
+                    lines.pop(idx)
+                continue
+            idx += 1
+        return [ln for ln in lines if ln.strip()]
 
-    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    top_block_height = int(height * 0.25)
+    stripe_height = int(height * 0.08)
+    art_top = top_block_height + stripe_height
+    art_height = max(height - art_top, 0)
+
+    base_orientation = rand.choice(["vertical", "horizontal", "diagonal", "radial"])
+    img = Image.new("RGB", (width, height))
+    
+    # Рисуем градиент только в нижней части (после полоски)
+    if art_height > 0:
+        art_img = Image.new("RGB", (width, art_height))
+        draw_gradient(art_img, art_start_color, art_end_color, base_orientation)
+        img.paste(art_img, (0, art_top))
 
     draw = ImageDraw.Draw(img)
-    # Пробуем загрузить шрифт, если не получается - используем стандартный
-    try:
-        # Пробуем найти системный шрифт
-        title_font = ImageFont.truetype("arial.ttf", 72)
-        author_font = ImageFont.truetype("arial.ttf", 48)
-    except:
+    draw.rectangle((0, 0, width, top_block_height), fill=top_block_color)
+    stripe_y0 = top_block_height
+    stripe_y1 = stripe_y0 + stripe_height
+    draw.rectangle((0, stripe_y0, width, stripe_y1), fill=stripe_color)
+
+    logo_path = Path(__file__).resolve().parent / "logo.png"
+    if logo_path.exists():
         try:
-            # Альтернативные пути для Windows
+            with Image.open(logo_path) as logo_img:
+                logo = logo_img.convert("RGBA")
+                max_logo_height = max(24, stripe_height - 30)
+                scale = min(
+                    max_logo_height / logo.height,
+                    (width * 0.25) / logo.width,
+                    1,
+                )
+                if scale > 0:
+                    new_size = (
+                        max(1, int(logo.width * scale)),
+                        max(1, int(logo.height * scale)),
+                    )
+                    logo = logo.resize(new_size, Image.LANCZOS)
+                    logo_x = max(0, (width - new_size[0]) // 2)
+                    logo_y = stripe_y0 + (stripe_height - new_size[1]) // 2
+                    img.paste(logo, (logo_x, logo_y), logo)
+        except Exception:
+            pass
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 72)
+        author_font = ImageFont.truetype("arial.ttf", 52)
+    except Exception:
+        try:
             title_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 72)
-            author_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 48)
-        except:
-            # Используем стандартный шрифт
+            author_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 52)
+        except Exception:
             title_font = ImageFont.load_default()
             author_font = ImageFont.load_default()
-    
-    # Разбиваем заголовок на строки, если он слишком длинный
+
+    if title_color:
+        title_fill = title_color
+    else:
+        title_fill = contrast_text_color(top_block_color, art_end_color)
+    author_fill = (0, 0, 0) if brightness(top_block_color) > 190 else (255, 255, 255)
+
+    max_title_width = width - 160
     title_lines = []
-    words = title.split()
     current_line = ""
-    max_width = width - 200  # Отступы по 100px с каждой стороны
-    
-    for word in words:
+    for word in title.split():
         test_line = current_line + (" " if current_line else "") + word
         bbox = draw.textbbox((0, 0), test_line, font=title_font)
-        text_width = bbox[2] - bbox[0]
-        
-        if text_width <= max_width:
+        if bbox[2] - bbox[0] <= max_title_width:
             current_line = test_line
         else:
             if current_line:
                 title_lines.append(current_line)
             current_line = word
-    
     if current_line:
         title_lines.append(current_line)
-    
-    draw = ImageDraw.Draw(img)
-    # Рисуем заголовок
-    title_y = height // 3
-    line_height = 90
-    for i, line in enumerate(title_lines):
+    title_lines = fix_hanging_prepositions(title_lines)
+
+    line_height = title_font.size + 12
+    title_block_height = len(title_lines) * line_height
+
+    if author:
+        author_bbox = draw.textbbox((0, 0), author, font=author_font)
+        author_height = author_bbox[3] - author_bbox[1]
+        author_width = author_bbox[2] - author_bbox[0]
+    else:
+        author_height = 0
+        author_width = 0
+
+    spacing_between = title_font.size if title_lines and author else 0
+    total_text_height = author_height
+    if title_lines:
+        if author:
+            total_text_height += spacing_between
+        total_text_height += title_block_height
+    text_start_y = max(20, (top_block_height - total_text_height) // 2)
+
+    current_y = text_start_y
+    if author:
+        author_x = (width - author_width) // 2 if author_width else 0
+        draw.text((author_x, current_y), author, font=author_font, fill=author_fill)
+        current_y += author_height + spacing_between
+
+    for line in title_lines:
         bbox = draw.textbbox((0, 0), line, font=title_font)
         text_width = bbox[2] - bbox[0]
         x = (width - text_width) // 2
-        y = title_y + i * line_height
-        
-        # Тень для текста (темно-серый)
-        draw.text((x + 3, y + 3), line, font=title_font, fill=(50, 50, 50))
-        # Основной текст
-        draw.text((x, y), line, font=title_font, fill=(255, 255, 255))
-    
-    # Рисуем автора, если указан
-    if author:
-        bbox = draw.textbbox((0, 0), author, font=author_font)
-        text_width = bbox[2] - bbox[0]
-        author_x = (width - text_width) // 2
-        author_y = height - 300
-        
-        # Тень для текста (темно-серый)
-        draw.text((author_x + 2, author_y + 2), author, font=author_font, fill=(50, 50, 50))
-        # Основной текст
-        draw.text((author_x, author_y), author, font=author_font, fill=(200, 200, 200))
-    
-    prompt = prompt.strip()
-    if prompt:
-        prompt_font = author_font
-        prompt_y = height - 200
-        prompt_text = f"Prompt: {prompt}"
-        prompt_bbox = draw.textbbox((0, 0), prompt_text, font=prompt_font)
-        prompt_width = prompt_bbox[2] - prompt_bbox[0]
-        draw.text(((width - prompt_width) // 2, prompt_y), prompt_text, font=prompt_font, fill=(230, 230, 230))
+        draw.text((x, current_y), line, font=title_font, fill=title_fill)
+        current_y += line_height
 
-    # Сохраняем в байты (JPEG)
     from io import BytesIO
     img_bytes = BytesIO()
-    img.save(img_bytes, format='JPEG', quality=90)
+    img.save(img_bytes, format="JPEG", quality=90)
     return img_bytes.getvalue()
 
 
@@ -531,7 +646,7 @@ def generate_epub(
     output_epub: Path,
     title: str,
     author: str = "",
-    cover_prompt: str = "",
+    cover_colors: list[str] | None = None,
     max_chapter_size_kb: int = 50,
 ):
     """Генерировать EPUB на основе шаблона и блоков текста"""
@@ -556,7 +671,11 @@ def generate_epub(
         has_cover_image = False
         if HAS_PIL:
             try:
-                cover_image_data = generate_cover_image(title, author, prompt=cover_prompt)
+                cover_image_data = generate_cover_image(
+                    title,
+                    author=author,
+                    cover_colors=cover_colors,
+                )
                 cover_image_path = images_path / "cover.jpg"
                 cover_image_path.write_bytes(cover_image_data)
                 has_cover_image = True
@@ -699,7 +818,11 @@ def main():
     ap.add_argument("--out", required=True, help="Выходной EPUB файл")
     ap.add_argument("--title", required=True, help="Заголовок книги")
     ap.add_argument("--author", default="", help="Автор книги (для обложки)")
-    ap.add_argument("--cover-prompt", default="", help="Дополнительное описание желаемой обложки (palette/era/mood/decor)")
+    ap.add_argument(
+        "--cover-colors",
+        default="",
+        help="Пять HEX-цветов (полоска; верхний блок; заголовок; нижний градиент начало; конец)",
+    )
     ap.add_argument("--max-chapter-size", type=int, default=50, help="Максимальный размер главы в KB (по умолчанию 50)")
     args = ap.parse_args()
     
@@ -735,6 +858,13 @@ def main():
     
     print(f"Загружено {len(blocks)} блоков")
     
+    cover_colors = None
+    if args.cover_colors:
+        try:
+            cover_colors = parse_cover_colors_arg(args.cover_colors)
+        except ValueError as exc:
+            ap.error(str(exc))
+
     # Генерируем EPUB
     generate_epub(
         template_epub,
@@ -742,7 +872,7 @@ def main():
         output_epub,
         args.title,
         args.author,
-        cover_prompt=args.cover_prompt,
+        cover_colors=cover_colors,
         max_chapter_size_kb=args.max_chapter_size,
     )
     

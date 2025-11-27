@@ -18,7 +18,7 @@ Quick Start
 - Ensure your PDF already has an OCR text layer (this project does not run OCR).
 - Run the pipeline:
   - Basic (paragraph preservation + spelling correction):
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)"
+  - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)"
   - With optional steps:
   - Add LanguageTool (cloud) and post-cleanup (optionally followed by Yandex.Speller):
       - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --with-yandex --post-clean
@@ -84,16 +84,71 @@ What it does:
 6. Creates EPUB file in out/ folder (skipped if `final_clean.txt` is missing)
 7. `generate_epub.py` can read plain `.txt` files (e.g., `final_clean.txt` from LanguageTool), so EPUB always uses the latest corrected text
 
-You can also influence the automatically generated cover by passing `--cover-palette`, `--cover-era`, `--cover-mood`, and `--cover-decoration` through `pipeline.py`; their values are merged into a prompt that appears on the cover and helps choose the gradient, pattern layers, and symbolic style that match the requested palette, era, mood, and decorations.
+You can explicitly control the cover palette by passing `--cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"` through `pipeline.py` or `generate_cover.py`. The five values determine the stripe, upper block, title, and the start+end colors of the lower gradient block, and the author text automatically picks a contrasting color.
 
 Example usage:
 ```bash
 # Full processing with EPUB generation
-python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Author Name"
+python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Author Name" --cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"
 
 # Or separately (if you already have processed HTML)
-python generate_epub.py --template sample.epub --in out/final_better.html --out out/book.epub --title "Book Title" --author "Author Name"
+python generate_epub.py --template sample.epub --in out/final_better.html --out out/book.epub --title "Book Title" --author "Author Name" --cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"
 ```
+
+## Standalone Cover Generation
+
+If you just want to inspect the cover art without running the full pipeline, use `generate_cover.py`. It generates a cover with an upper block, a stripe with a logo, and a gradient lower zone.
+
+### Basic Usage
+
+```bash
+python generate_cover.py \
+  --title "Book Title" \
+  --author "Author Name" \
+  --out cover-only.jpg
+```
+
+Without specifying colors, the cover will be generated with a random palette.
+
+### Using a 5-Color Palette
+
+You can explicitly set all cover colors via the `--cover-colors` parameter:
+
+```bash
+python generate_cover.py \
+  --title "Book Title" \
+  --author "Author Name" \
+  --cover-colors "#8ecae6,#219ebc,#023047,#ffb703,#fb8500" \
+  --out cover-only.jpg
+```
+
+**Color order (5 HEX values separated by commas):**
+1. **Logo stripe** — must be dark, as the logo is white (e.g., `#023047`)
+2. **Upper block** — background for author and title (e.g., `#219ebc`)
+3. **Title color** — applied directly to the title text (e.g., `#023047`)
+4. **Gradient start (lower zone)** — first color of the gradient in the decorative area (e.g., `#ffb703`)
+5. **Gradient end (lower zone)** — second color of the gradient (e.g., `#fb8500`)
+
+**Notes:**
+- Author name automatically becomes white or black depending on the upper block brightness
+- Title color is applied directly without modifications
+- Lower zone gradient can be vertical, horizontal, diagonal, or radial (chosen randomly)
+- Logo is automatically centered in the stripe and reduced by 10 pixels relative to the stripe height
+
+### Additional Parameters
+
+```bash
+python generate_cover.py \
+  --title "Book Title" \
+  --author "Author Name" \
+  --cover-colors "#8ecae6,#219ebc,#023047,#ffb703,#fb8500" \
+  --width 1200 \
+  --height 1600 \
+  --out cover-only.jpg
+```
+
+- `--width` — cover width in pixels (default: 1200)
+- `--height` — cover height in pixels (default: 1600)
 
 Optional name-validation step (PDF must already be in modern spelling):
 ```bash
@@ -136,8 +191,9 @@ python pipeline.py ... --context-check --context-out out/context_warnings.txt --
 
 `pyspellchecker` can be added as another lightweight pass to catch rare typos that LanguageTool misses.
 
-Features:
-- Automatic cover generation with gradient from 3 harmonious colors and randomized pattern overlays
+- Features:
+- Automatic cover generation with a top block, divider stripe, and gradient-decorated lower block rendered in varying orientations
+- The `--cover-colors` option lets you pick the stripe, upper block, title, and lower gradient colors explicitly for both pipeline and standalone cover runs
 - Sections numbered starting from 1 (Section0001.xhtml, Section0002.xhtml, etc.)
 - Updated title page (Titul.xhtml) with new title and author
 - Updated table of contents (toc.ncx) with new sections
@@ -155,7 +211,7 @@ Repository layout
 - natasha_sync.py              — harmonize `final_clean.txt` with PDF entity forms via Natasha
 - context_checker.py           — context-sensitive pronoun+verb check
 - oldspelling.py              — pre‑reform spelling rules (regex map)
-- requirements.txt            — dependencies (PyMuPDF, python-dotenv, Pillow)
+- requirements.txt            — dependencies (PyMuPDF, Pillow, natasha)
 
 Publish to GitHub (example)
 - cd ocr2html
