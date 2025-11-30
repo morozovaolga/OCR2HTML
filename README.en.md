@@ -1,6 +1,6 @@
-OCR → HTML (paragraph-preserving, with spelling modernization)
+OCR → EPUB (paragraph-preserving, with spelling modernization)
 
-This minimal toolchain takes a PDF that already contains an OCR text layer, reconstructs paragraphs/headings based on page layout, applies historical (pre‑reform) Russian spelling rules (oldspelling), then modern Russian spelling/typographic normalization, and exports clean HTML/TXT. Also supports EPUB file generation with automatically created cover based on a template.
+This minimal toolchain takes a PDF that already contains an OCR text layer, reconstructs paragraphs/headings based on page layout, applies historical (pre‑reform) Russian spelling rules (oldspelling), then modern Russian spelling/typographic normalization, and exports clean HTML/TXT/EPUB. Main goal is EPUB file generation with automatically created cover based on a template.
 
 No frontend or extra files — just the scripts you need.
 
@@ -18,14 +18,15 @@ Quick Start
 - Ensure your PDF already has an OCR text layer (this project does not run OCR).
 - Run the pipeline:
   - Basic (paragraph preservation + spelling correction):
-  - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)"
+  - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)" --epub-template sample.epub
   - With optional steps:
-  - Add LanguageTool (cloud) and post-cleanup (optionally followed by Yandex.Speller):
-      - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --with-yandex --post-clean
+  - Add LanguageTool (cloud) and post-cleanup:
+      - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --post-clean --epub-template sample.epub
+  - **Recommended:** `--lt-cloud --natasha-sync` for best quality (79.61% accuracy) — see [interactive dashboard with test results](https://morozovaolga.github.io/ocr2epub/)
   - For PDFs with two columns per page (left column first, then right):
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --two-columns
-  - With EPUB generation (requires EPUB template and Pillow; `final_clean.txt` must exist):
-    - python pipeline.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --epub-template sample.epub --epub-author "Author Name"
+    - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document" --two-columns --epub-template sample.epub
+  - With EPUB generation (requires EPUB template and Pillow):
+    - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document" --author "Author Name" --lt-cloud --epub-template sample.epub
     - (Optional) add `--epub-max-chapter-size KB` to force splitting into sized chapters when there are no clear headings (default 50)
 
 Outputs (in out/)
@@ -46,7 +47,7 @@ How it works
 3) modernize_structured.py — fixes linebreaks/dashes/ellipsis/spaces, merges paragraph fragments, modernizes letters, writes final HTML/TXT and flags.
 4) (optional) lt_cloud.py — applies safe LanguageTool (cloud) spelling fixes.
 5) (optional) post_cleanup.py — joins spaced letters, fixes intraword gaps, converts Latin→Cyrillic.
-How LanguageTool and Yandex.Speller work together:
+How LanguageTool works:
 LanguageTool is a cloud-based grammar and spelling checker. This project uses it only for safe automatic corrections, without changing style or grammar.
 
 What it does:
@@ -58,7 +59,6 @@ What it does:
    - Multiple spaces (MULTIPLE_SPACES) — "two   spaces" → "two spaces"
    - Double punctuation (DOUBLE_PUNCTUATION) — "??" → "?"
 4. Applies the first suggested fix for each safe match and avoids overlapping corrections
-5. Optionally (`--with-yandex`) runs Yandex.Speller after LanguageTool for an extra pass of simple spelling fixes (language override via `--yandex-lang`)
 
 What it does NOT do:
 - Does not fix style
@@ -84,12 +84,12 @@ What it does:
 6. Creates EPUB file in out/ folder (skipped if `final_clean.txt` is missing)
 7. `generate_epub.py` can read plain `.txt` files (e.g., `final_clean.txt` from LanguageTool), so EPUB always uses the latest corrected text
 
-You can explicitly control the cover palette by passing `--cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"` through `pipeline.py` or `generate_cover.py`. The five values determine the stripe, upper block, title, and the start+end colors of the lower gradient block, and the author text automatically picks a contrasting color.
+You can explicitly control the cover palette by passing `--cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"` through `pdf_to_epub.py` or `generate_cover.py`. The five values determine the stripe, upper block, title, and the start+end colors of the lower gradient block, and the author text automatically picks a contrasting color.
 
 Example usage:
 ```bash
 # Full processing with EPUB generation
-python pipeline.py --pdf book.pdf --outdir out --title "Book Title" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --epub-author "Author Name" --cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"
+python pdf_to_epub.py --pdf book.pdf --outdir out --title "Book Title" --author "Author Name" --two-columns --no-oldspelling --lt-cloud --epub-template sample.epub --cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"
 
 # Or separately (if you already have processed HTML)
 python generate_epub.py --template sample.epub --in out/final_better.html --out out/book.epub --title "Book Title" --author "Author Name" --cover-colors "#f4f1de,#e07a5f,#3d405b,#81b29a,#f2cc8f"
@@ -168,9 +168,9 @@ python natasha_sync.py --pdf sn.pdf --clean out/final_clean.txt --report out/sn_
 ```
 It rewrites `final_clean.txt`, replacing the entity strings that survived the modernization step with the forms from the PDF, so the EPUB can reuse the verified names and geographies.
 
-Run both steps inside `pipeline.py` with:
+Run both steps inside `pdf_to_epub.py` with:
 ```bash
-python pipeline.py ... --natasha-check --natasha-sync --natasha-out out/sn_natasha.txt --natasha-sync-report out/sn_natasha_sync.txt
+python pdf_to_epub.py ... --natasha-check --natasha-sync --natasha-out out/sn_natasha.txt --natasha-sync-report out/sn_natasha_sync.txt
 ```
 The flags `--natasha-types`, `--natasha-check`, and `--natasha-sync` sequentially run the Natasha comparison and harmonization before EPUB generation.
 
@@ -183,9 +183,9 @@ This script uses `pymorphy2` to detect two patterns:
 - adjacent words that should be joined (if `умер шей` produces the valid form `умершей`, it recommends the glued variant).
 You can override the pronoun set via `--context-pronouns`.
 
-Enable the context step inside `pipeline.py`:
+Enable the context step inside `pdf_to_epub.py`:
 ```bash
-python pipeline.py ... --context-check --context-out out/context_warnings.txt --natasha-check --natasha-sync
+python pdf_to_epub.py ... --context-check --context-out out/context_warnings.txt --natasha-check --natasha-sync
 ```
 `--context-check` runs `context_checker.py` immediately after LanguageTool so the EPUB is built from text that passed the pronoun+verb sanity check.
 
@@ -200,7 +200,7 @@ python pipeline.py ... --context-check --context-out out/context_warnings.txt --
 - Supports both HTML (final_*.html) and JSON (structured*.json) as source
 
 Repository layout
-- pipeline.py                 — orchestrator
+- pdf_to_epub.py              — orchestrator
 - extract_structured_text.py  — structure extraction
 - apply_rules_structured.py   — oldspelling rules application
 - modernize_structured.py     — modernization and final rendering
@@ -214,10 +214,10 @@ Repository layout
 - requirements.txt            — dependencies (PyMuPDF, Pillow, natasha)
 
 Publish to GitHub (example)
-- cd ocr2html
+- cd ocr2epub
 - git init -b main
 - git add .
-- git commit -m "Initial OCR→HTML toolchain"
+- git commit -m "Initial OCR→EPUB toolchain"
 - git remote add origin https://github.com/<your-user>/<your-repo>.git
 - git push -u origin main
 
