@@ -20,9 +20,9 @@ Quick Start
   - Basic (paragraph preservation + spelling correction):
   - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document (modern)" --epub-template sample.epub
   - With optional steps:
-  - Add LanguageTool (cloud) and post-cleanup:
-      - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document" --lt-cloud --post-clean --epub-template sample.epub
-  - **Recommended:** `--lt-cloud --natasha-sync` for best quality (79.61% accuracy) — see [interactive dashboard with test results](https://morozovaolga.github.io/ocr2epub/)
+  - **Recommended:** `--lt-cloud --natasha-sync` for best quality (79.61% accuracy, ~8.4 sec) — see [interactive dashboard with extended test results](https://morozovaolga.github.io/ocr2epub/)
+  - Fast option: `--lt-cloud` for good quality (79.42% accuracy, ~7 sec)
+  - ⚠️ **Not recommended:** `--post-clean` (reduces accuracy to 77.27%) — excluded from extended research
   - For PDFs with two columns per page (left column first, then right):
     - python pdf_to_epub.py --pdf path/to/file.pdf --outdir out --title "My Document" --two-columns --epub-template sample.epub
   - With EPUB generation (requires EPUB template and Pillow):
@@ -200,6 +200,26 @@ python pdf_to_epub.py ... --context-check --context-out out/context_warnings.txt
 - Updated title page (Titul.xhtml) with new title and author
 - Updated table of contents (toc.ncx) with new sections
 - Supports both HTML (final_*.html) and JSON (structured*.json) as source
+
+## 📊 Test Results
+
+Extended testing of all possible tool combinations (63 combinations) with detailed metrics:
+- OCR error type metrics (letter replacements, merged words, split words, Latin/Cyrillic mix, intraword spaces)
+- Precision, Recall, F1-score for each error type
+- Named entity and toponym accuracy metrics (PER, LOC, ORG)
+- Document structure preservation metrics
+- False positive analysis
+
+**Results:** [Interactive Dashboard](https://morozovaolga.github.io/ocr2epub/) — experiment with different tool combinations and see their impact on processing quality in real time.
+
+**Best Combinations:**
+- 🏆 **Maximum Quality:** `--lt-cloud --natasha-sync` (79.61% accuracy, ~8.4 sec)
+- ⚡ **Fast Processing:** `--lt-cloud` (79.42% accuracy, ~7 sec)
+- 📊 **Base Option:** modernization only (73.90% accuracy, ~1 sec)
+
+**Not Recommended:**
+- ❌ `--post-clean` — reduces accuracy (77.27% vs 79.42%)
+- ❌ `--local-spell` with pyspellchecker — significantly reduces quality (down to 52.4%)
 
 Repository layout
 - pdf_to_epub.py              — orchestrator
