@@ -66,6 +66,9 @@ netlify.toml
 full_processing_command.txt
 Book1.twb
 
-# Тестовые данные в docs (оставляем только дашборд)
-docs/karp.pdf
-docs/karp.txt
+# Тестовые данные (кроме docs для GitHub Pages)
+*.pdf
+!docs/karp.pdf
+*.txt
+!docs/karp.txt
+!docs/README.md
