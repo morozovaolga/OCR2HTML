@@ -11,7 +11,7 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Outputs (recommend exclude when publishing sample repo)
+# Outputs
 out/
 output/
 output_vol2/
@@ -19,9 +19,53 @@ output_vol2/
 # PDF files
 *.pdf
 
-# EPUB files
+# EPUB files (кроме шаблона)
 *.epub
+!sample.epub
 
 # Environment variables
 .env
 
+# Тестирование и результаты тестов
+test_results/
+test_results_new/
+test_results_stanza_only/
+test_stanza_quick/
+test_pipeline_combinations.py
+comparison_results/
+
+# Документация, не относящаяся к работе пайплайна
+README_DASHBOARD.md
+README_ENCODING.md
+README_EXTRACT_TESTS.md
+README_TESTING.md
+DASHBOARD_TOOLS_RECOMMENDATIONS.md
+KNIME_WORKFLOW_GUIDE.md
+POWER_BI_GUIDE.md
+PUBLISH_DASHBOARD.md
+PUBLISH_GITHUB.md
+QUICK_DEPLOY.md
+CHANGE_REMOTE_URL.md
+TODO_IMPROVEMENTS.md
+
+# Вспомогательные скрипты для анализа/визуализации (не нужны для работы пайплайна)
+create_combination_matrix.py
+create_dashboard_data.py
+create_matrix_csv.py
+convert_to_tableau_format.py
+dashboard_dash.py
+start_dashboard_server.py
+prepare_github_pages.py
+check_tools.py
+
+# Конфигурации для других платформ (не нужны для работы пайплайна)
+vercel.json
+netlify.toml
+
+# Временные файлы
+full_processing_command.txt
+Book1.twb
+
+# Тестовые данные в docs (оставляем только дашборд)
+docs/karp.pdf
+docs/karp.txt
