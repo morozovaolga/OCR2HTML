@@ -68,6 +68,8 @@ What it does NOT do:
 
 Result: final_clean.txt and final_clean.html files with applied safe corrections.
 
+📊 **[Interactive dashboard](https://morozovaolga.github.io/ocr2epub/)** — visualize test results for all tool combinations. Experiment with different combinations and see their impact on quality metrics in real time.
+
 EPUB Generation (--epub-template):
 The program can automatically create EPUB files based on an EPUB template and processed text.
 
